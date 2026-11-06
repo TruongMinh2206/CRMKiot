@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, sync, reports, excel
+from . import config, db, sync, reports, excel, backup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
@@ -63,7 +63,7 @@ def status(user=Depends(current_user)):
     counts = {t: db.one(f"SELECT COUNT(*) n FROM {t}")["n"] for t in ("customers", "products", "invoices", "orders")}
     return {"sync": sync.state, "last_sync": db.get_meta("last_sync"), "log": last, "counts": counts,
             "retailer": config.KIOT_RETAILER, "configured": bool(config.KIOT_CLIENT_ID and config.KIOT_CLIENT_SECRET),
-            "sale_source": config.SALE_SOURCE, "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
+            "sale_source": config.SALE_SOURCE, "backup": backup.enabled(), "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
 
 
 @app.post("/api/sync")
@@ -299,4 +299,15 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 @app.on_event("startup")
 def startup():
     db.init()
+    backup.restore()
     sync.start_scheduler()
+
+
+@app.middleware("http")
+async def backup_after_write(request: Request, call_next):
+    """Mọi thao tác ghi (POST) vào dữ liệu nhập tay -> sao lưu nền sang Postgres."""
+    resp = await call_next(request)
+    if request.method == "POST" and resp.status_code < 400 and request.url.path.startswith("/api/") \
+            and not request.url.path.startswith(("/api/login", "/api/logout", "/api/sync")):
+        backup.save()
+    return resp

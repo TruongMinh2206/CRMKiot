@@ -238,6 +238,8 @@ def sync_all(full=False):
 
         state["progress"] = "Gán sale cho khách"
         reapply_sales()
+        from . import backup
+        backup.restore_customer_manual()
 
         db.set_meta("last_sync", started.isoformat(timespec="seconds"))
         msg = "OK"

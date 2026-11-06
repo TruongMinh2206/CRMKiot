@@ -26,3 +26,5 @@ services:
         value: "30"
       - key: DB_PATH
         value: data/crm.db
+      - key: DATABASE_URL
+        sync: false
