@@ -273,6 +273,14 @@ def sync_all(full=False):
                 if wt < _fmt_kiot(datetime.now() - timedelta(days=1)):
                     db.set_meta(key, "1")
 
+        if full or db.get_meta("verified_v1") != "1":
+            state["progress"] = "Kiểm tra & vá dữ liệu"
+            try:
+                verify_and_repair()
+                db.set_meta("verified_v1", "1")
+            except Exception:
+                log.exception("verify failed")
+
         state["progress"] = "Gán sale cho khách"
         state["_in_sync"] = True
         try:
@@ -453,6 +461,42 @@ def reapply_async():
 
     threading.Thread(target=run, daemon=True).start()
     return "started"
+
+
+def verify_and_repair(full_history=True):
+    """Đối chiếu số hoá đơn / trả hàng với KiotViet theo từng tháng, tháng nào thiếu thì tải lại.
+
+    (Đơn đặt hàng không kiểm được vì API KiotViet bỏ qua bộ lọc ngày ở endpoint này.)
+    """
+    k = KiotClient()
+    report = []
+    days = config.SYNC_HISTORY_DAYS if full_history else 90
+    for wf, wt in _month_windows(days):
+        ym = wf[:7]
+        state["progress"] = f"Kiểm tra tháng {ym}"
+        checks = [
+            ("invoices", "invoices", {"fromPurchaseDate": wf, "toPurchaseDate": wt},
+             "SELECT COUNT(*) n FROM invoices WHERE purchase_date BETWEEN ? AND ?", _sync_invoices),
+            ("returns", "returns", {"fromReturnDate": wf, "toReturnDate": wt},
+             "SELECT COUNT(*) n FROM returns WHERE return_date BETWEEN ? AND ?", _sync_returns),
+        ]
+        for name, path, params, sql, fn in checks:
+            try:
+                remote = k.count(path, params)
+            except Exception:
+                log.exception("count %s %s", path, ym)
+                continue
+            local = db.one(sql, (wf[:10], wt[:10] + " 23:59:59"))["n"]
+            if remote is not None and local < remote:
+                state["progress"] = f"Vá {name} tháng {ym} ({local}/{remote})"
+                if name == "returns":
+                    fn(k, from_date=wf, to_date=wt)
+                else:
+                    fn(k, from_date=wf, to_date=wt)
+                after = db.one(sql, (wf[:10], wt[:10] + " 23:59:59"))["n"]
+                report.append({"ym": ym, "loai": name, "truoc": local, "kiot": remote, "sau": after})
+    db.set_meta("last_verify", datetime.now().isoformat(timespec="seconds"))
+    return report
 
 
 def reapply_sales():

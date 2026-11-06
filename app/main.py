@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 from datetime import date, datetime, timedelta
@@ -62,9 +63,33 @@ def status(user=Depends(current_user)):
     last = db.rows("SELECT * FROM sync_log ORDER BY id DESC LIMIT 5")
     counts = {t: db.one(f"SELECT COUNT(*) n FROM {t}")["n"] for t in ("customers", "products", "invoices", "orders")}
     return {"sync": sync.state, "last_sync": db.get_meta("last_sync"), "log": last, "counts": counts,
-            "snapshot": backup.snapshot_info(),
+            "snapshot": backup.snapshot_info(), "last_verify": db.get_meta("last_verify"),
             "retailer": config.KIOT_RETAILER, "configured": bool(config.KIOT_CLIENT_ID and config.KIOT_CLIENT_SECRET),
             "sale_source": sync.sale_source(), "backup": backup.enabled(), "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
+
+
+@app.post("/api/verify")
+def verify_now(user=Depends(current_user)):
+    """Đối chiếu số bản ghi với KiotViet và tải lại tháng nào thiếu."""
+    if user["role"] not in ("admin", "accountant"):
+        raise HTTPException(403)
+    if sync.state["running"]:
+        return {"ok": False, "message": "Đang đồng bộ"}
+
+    def run():
+        sync.state["running"] = True
+        try:
+            r = sync.verify_and_repair()
+            db.set_meta("last_verify_report", json.dumps(r, ensure_ascii=False))
+            sync.reapply_sales()
+        except Exception:
+            logging.exception("verify")
+        finally:
+            sync.state["running"] = False
+            sync.state["progress"] = ""
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "message": "Đang kiểm tra & vá dữ liệu"}
 
 
 @app.post("/api/snapshot")

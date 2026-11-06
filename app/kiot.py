@@ -61,20 +61,41 @@ class KiotClient:
 
     # ---- paging -----------------------------------------------------------
     def iter_pages(self, path, params=None, page_size=100, sleep=0.25):
-        """Yield items across pages using pageSize/currentItem."""
+        """Yield items across pages.
+
+        Sắp xếp theo id (ổn định): nếu sắp theo modifiedDate, hoá đơn bị sửa trong
+        lúc tải sẽ đổi vị trí và làm sót bản ghi giữa các trang.
+        """
         params = dict(params or {})
+        params["orderBy"] = "id"
+        params["orderDirection"] = "ASC"
         current = 0
+        seen = set()
+        total = None
         while True:
             params.update({"pageSize": page_size, "currentItem": current})
             j = self.get(path, params)
             data = j.get("data") or []
+            if total is None:
+                total = j.get("total")
             for item in data:
+                k = item.get("id")
+                if k in seen:
+                    continue
+                seen.add(k)
                 yield item
-            total = j.get("total")
             current += len(data)
             if not data or (total is not None and current >= total) or len(data) < page_size:
                 break
             time.sleep(sleep)
+        if total is not None and len(seen) < total:
+            log.warning("%s: chỉ lấy được %s/%s bản ghi", path, len(seen), total)
+
+    def count(self, path, params=None):
+        """Số bản ghi KiotViet báo có (để đối chiếu)."""
+        p = dict(params or {})
+        p.update({"pageSize": 1, "currentItem": 0, "includeTotal": "true"})
+        return self.get(path, p).get("total")
 
     # ---- resources --------------------------------------------------------
     def branches(self):
@@ -84,7 +105,7 @@ class KiotClient:
         return self.get("users").get("data", [])
 
     def customers(self, last_modified_from=None):
-        p = {"includeTotal": "true", "includeCustomerGroup": "true", "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        p = {"includeTotal": "true", "includeCustomerGroup": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         return self.iter_pages("customers", p)
@@ -96,14 +117,13 @@ class KiotClient:
         return self.get("customers/group").get("data", [])
 
     def products(self, last_modified_from=None):
-        p = {"includeInventory": "true", "includeTotal": "true", "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        p = {"includeInventory": "true", "includeTotal": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         return self.iter_pages("products", p)
 
     def invoices(self, from_date=None, to_date=None, last_modified_from=None):
-        p = {"includeTotal": "true", "includePayment": "true", "includeInvoiceDelivery": "true",
-             "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        p = {"includeTotal": "true", "includePayment": "true", "includeInvoiceDelivery": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         if from_date:
@@ -113,7 +133,7 @@ class KiotClient:
         return self.iter_pages("invoices", p)
 
     def returns(self, from_date=None, to_date=None, last_modified_from=None):
-        p = {"includeTotal": "true", "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        p = {"includeTotal": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         if from_date:
@@ -123,8 +143,7 @@ class KiotClient:
         return self.iter_pages("returns", p)
 
     def orders(self, from_date=None, to_date=None, last_modified_from=None):
-        p = {"includeTotal": "true", "includePayment": "true", "includeOrderDelivery": "true",
-             "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        p = {"includeTotal": "true", "includePayment": "true", "includeOrderDelivery": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         if from_date:
