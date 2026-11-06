@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, lead_id INTEGER, created TEXT, author TEXT, content TEXT
 );
 
+CREATE TABLE IF NOT EXISTS teams (
+  sale TEXT PRIMARY KEY, team TEXT, position INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS kpi_targets (
   sale TEXT, ym TEXT, revenue_target REAL DEFAULT 0, new_customers_target INTEGER DEFAULT 0,
   buying_customers_target INTEGER DEFAULT 0, PRIMARY KEY (sale, ym)
@@ -107,6 +111,16 @@ def init():
         if "lead_id" not in cols:
             con.execute("ALTER TABLE notes ADD COLUMN lead_id INTEGER")
         # Bỏ cột raw không dùng ở invoices/products/orders -> DB nhẹ đi ~4 lần
+        pcols = [r[1] for r in con.execute("PRAGMA table_info(products)")]
+        if "trade_mark" not in pcols:
+            con.execute("ALTER TABLE products ADD COLUMN trade_mark TEXT")
+            con.execute("DELETE FROM meta WHERE key='trade_mark_filled'")
+        ccols = [r[1] for r in con.execute("PRAGMA table_info(customers)")]
+        if "is_boss" not in ccols:
+            con.execute("ALTER TABLE customers ADD COLUMN is_boss INTEGER DEFAULT 0")
+        dcols = [r[1] for r in con.execute("PRAGMA table_info(invoice_details)")]
+        if "trade_mark" not in dcols:
+            con.execute("ALTER TABLE invoice_details ADD COLUMN trade_mark TEXT")
         done = con.execute("SELECT value FROM meta WHERE key='slim_v1'").fetchone()
         if not done:
             for t in ("invoices", "products", "orders"):

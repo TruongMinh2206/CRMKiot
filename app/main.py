@@ -300,6 +300,20 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("Theo sale", [("sale", "Sale"), ("n", "Đơn"), ("done", "Hoàn thành"), ("cancelled", "Hủy"), ("pending", "Đang xử lý"), ("total", "Giá trị HT", M)], j["by_sale"]))
         sheets.append(("Don dang ket", [("code", "Mã đơn"), ("purchase_date", "Ngày"), ("customer_name", "Khách"), ("sold_by_name", "Sale"), ("status", "Trạng thái"),
                         ("delivery_status_value", "Giao hàng"), ("age_days", "Số ngày"), ("total", "Giá trị", M)], j["stuck"]))
+    elif report == "board":
+        basis = db.get_meta("report_basis") or "customer"
+        b = reports.sales_board(f, t, basis)
+        cols = ([("team", "Team"), ("sale", "Sale"), ("target", "Mục tiêu", M), ("rev_sale", "DS khách sale", M)]
+                + [(k, lbl, M) for k, lbl in reports.CAT_KEYS]
+                + [("new_customer_rev", "Bán cho KH mới", M), ("rev_boss", "DS khách sếp", M),
+                   ("total", "TỔNG", M), ("pct", "% KPI", P), ("status", "Tình trạng"),
+                   ("prev", "Kỳ trước", M), ("invoices", "Số HĐ"), ("customers", "Số KH")])
+        sheets.append(("Bang doanh so", cols, b["rows"]))
+        tcols = ([("team", "Team"), ("target", "Mục tiêu", M), ("rev_sale", "DS khách sale", M)]
+                 + [(k, lbl, M) for k, lbl in reports.CAT_KEYS]
+                 + [("new_customer_rev", "Bán cho KH mới", M), ("rev_boss", "DS khách sếp", M),
+                    ("total", "TỔNG", M), ("pct", "% KPI", P), ("status", "Tình trạng")])
+        sheets.append(("Tong team", tcols, b["teams"]))
     elif report == "birthdays":
         sheets.append(("Sinh nhat", [("next_birthday", "Ngày SN"), ("days_until", "Còn (ngày)"), ("code", "Mã KH"), ("name", "Tên"), ("contact_number", "SĐT"),
                         ("age", "Tuổi"), ("sale", "Sale"), ("last_purchase", "Mua gần nhất"), ("lifetime_revenue", "DS tích luỹ", M)], reports.birthdays(days, s)))

@@ -145,7 +145,7 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 // ============================================================================
 // Shell
 // ============================================================================
-const PAGES=[['overview','Tổng quan','◫'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
+const PAGES=[['overview','Tổng quan','◫'],['board','Bảng doanh số','▦'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
 function render(){
   const root=$('#root');
   if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
@@ -191,7 +191,7 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // Pages
 // ============================================================================
 async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -345,15 +345,67 @@ async function settings(){
     <b class="small" style="display:block;margin-top:10px">Bí danh đã khai báo</b><table><tbody>${al.aliases.map(a=>`<tr><td>${esc(a.alias)}</td><td>→ ${esc(a.sale_name)}</td><td><button class="btn small" onclick="delAlias(${JSON.stringify(a.alias)})">Xoá</button></td></tr>`).join('')||'<tr><td class="muted">chưa có</td></tr>'}</tbody></table>
     <div class="row" style="margin-top:8px"><input id="aa" placeholder="Bí danh (vd TLL)" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="an" list="salesList" placeholder="Tên sale thống nhất" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><datalist id="salesList">${users_k.map(x=>`<option value="${esc(x)}">`).join('')}</datalist><button class="btn primary" id="bAlias">Lưu</button></div></div></div></div>`);
   $('#bAlias').onclick=async()=>{const r=await api('/aliases',{method:'POST',body:{alias:$('#aa').value,sale_name:$('#an').value}});toast(r.pending?'Đã lưu — sẽ áp dụng khi đồng bộ xong':'Đã lưu, đang tính lại ở chế độ nền…');refreshSync()};
+  // --- Team / khách sếp / nhóm hàng ---
+  const [tm,bosses,cmv]=await Promise.all([api('/teams'),api('/boss'),api('/catmap')]);
+  const people=tm.people||[];
+  const teamOf={};tm.teams.forEach(x=>teamOf[x.sale]=x.team);
+  const teamNames=[...new Set(tm.teams.map(x=>x.team).filter(Boolean))];
+  m.insertAdjacentHTML('beforeend',`<div class="grid g2" style="margin-top:14px">
+   <div class="card"><h3>Xếp team <span class="x">gõ tên team, để trống nếu không thuộc team nào</span></h3>
+    <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Sale / Người bán (theo doanh số)</th><th>Team</th></tr></thead><tbody>
+    ${people.map(p=>`<tr><td>${esc(p.name)}<br><span class="muted small">${p.revenue?fmtK(p.revenue)+' / 12 tháng':'chưa có doanh số'}</span></td><td><input class="f tmIn" data-s="${esc(p.name)}" list="teamList" value="${esc(teamOf[p.name]||'')}" style="width:100%" placeholder="—"></td></tr>`).join('')}
+    </tbody></table></div><datalist id="teamList">${teamNames.map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="bTeams">Lưu team</button></div></div>
+   <div class="card"><h3>Khách sếp <span class="x">${bosses.length} khách · tách riêng khỏi doanh số sale</span></h3>
+    <p class="small muted">Dán danh sách <b>mã khách</b> hoặc <b>tên khách</b> (mỗi dòng một khách) để đánh dấu hàng loạt. Hoặc mở hồ sơ từng khách và tick "Khách sếp".</p>
+    <textarea id="bossT" placeholder="KH000923&#10;NT Live Chu Thị Lệ - KTBH"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn primary" id="bBoss">Đánh dấu</button><label class="small"><input type="checkbox" id="bossReset"> xoá đánh dấu cũ trước</label></div>
+    ${bosses.length?`<div class="tablewrap" style="max-height:220px;margin-top:10px"><table><thead><tr><th>Mã</th><th>Khách</th><th class="r">DS 12 tháng</th><th></th></tr></thead><tbody>${bosses.map(b=>`<tr><td class="muted">${esc(b.code)}</td><td class="name">${esc(b.name)}</td><td class="r">${fmt(b.rev)}</td><td><button class="btn small" onclick="unBoss(${b.id})">Bỏ</button></td></tr>`).join('')}</tbody></table></div>`:''}</div></div>
+   <div class="card" style="margin-top:14px"><h3>Nhóm hàng cho báo cáo <span class="x">ánh xạ Nhãn hiệu trong KiotViet → cột trong Bảng doanh số</span></h3>
+    <div class="tablewrap" style="max-height:320px"><table><thead><tr><th>Nhãn hiệu (KiotViet)</th><th class="r">DS 12 tháng</th><th>Xếp vào cột</th></tr></thead><tbody>
+    ${cmv.marks.map(x=>`<tr><td>${esc(x.tm||'(không có nhãn hiệu)')}</td><td class="r">${fmt(x.rev)}</td><td><select class="f cmIn" data-tm="${esc(x.tm)}">${cmv.cats.map(c=>`<option value="${c[0]}" ${c[0]===x.cat?'selected':''}>${c[1]}</option>`).join('')}</select></td></tr>`).join('')}
+    </tbody></table></div><div class="row" style="margin-top:10px"><button class="btn primary" id="bCat">Lưu nhóm hàng</button></div></div>`);
+  $('#bTeams').onclick=async()=>{const rows=[...document.querySelectorAll('.tmIn')].map(i=>({sale:i.dataset.s,team:i.value}));await api('/teams',{method:'POST',body:{replace:rows}});toast('Đã lưu team')};
+  $('#bBoss').onclick=async()=>{const r=await api('/boss',{method:'POST',body:{codes:$('#bossT').value,reset:$('#bossReset').checked}});toast('Đã đánh dấu '+r.updated+' khách');loadPage()};
+  $('#bCat').onclick=async()=>{const mp={};document.querySelectorAll('.cmIn').forEach(sel=>{if(sel.value!=='normal')mp[sel.dataset.tm]=sel.value});await api('/catmap',{method:'POST',body:{map:mp}});toast('Đã lưu nhóm hàng')};
   const bs=$('#bSnap');if(bs)bs.onclick=async()=>{bs.textContent='Đang lưu…';bs.disabled=true;await api('/snapshot',{method:'POST'});setTimeout(async()=>{toast('Đã sao lưu');loadPage()},6000)};
   $('#bSet').onclick=async()=>{const b=$('#bSet');b.textContent='Đang tính lại…';b.disabled=true;const r=await api('/settings',{method:'POST',body:{sale_source:$('#sSrc').value,churn_days:$('#sChurn').value}});toast(r.pending?'Đã lưu — sẽ áp dụng khi đồng bộ xong':'Đang tính lại ở chế độ nền…');refreshSync();b.textContent='Lưu & tính lại';b.disabled=false};
   $('#bSync').onclick=async()=>{await api('/sync',{method:'POST'});toast('Đã bắt đầu đồng bộ');refreshSync()};
   $('#bFull').onclick=async()=>{if(confirm('Tải lại toàn bộ dữ liệu từ KiotViet? Có thể mất vài phút.')){await api('/sync?full=true',{method:'POST'});toast('Đã bắt đầu đồng bộ toàn bộ');refreshSync()}};
   $('#bAdd').onclick=async()=>{await api('/users',{method:'POST',body:{username:$('#nu').value,password:$('#np').value,display_name:$('#nd').value,role:$('#nr').value,sale_name:$('#ns').value}});toast('Đã lưu');loadPage()};
 }
+async function unBoss(id){await api('/boss',{method:'POST',body:{id,on:false}});toast('Đã bỏ');loadPage()}
 async function delAlias(a){if(confirm("Xoá bí danh "+a+"?")){await api("/aliases",{method:"POST",body:{alias:a,delete:true}});state.sales=await api("/sales");loadPage()}}
 async function delUser(u){if(confirm('Xoá tài khoản '+u+'?')){await api('/users',{method:'POST',body:{username:u,delete:true}});loadPage()}}
 
+
+// ============================================================================
+// Bảng doanh số (mẫu Excel)
+// ============================================================================
+async function board(){
+  const m=$('#main');const basis=state.basis||'';
+  const d=await api(`/board?from=${state.from}&to=${state.to}`+(basis?'&basis='+basis:''));
+  state.basis=d.basis;
+  const C=d.cats;const money=v=>v?fmt(v):'–';
+  const st=v=>v==null?'':`<span class="tag ${v==='ĐẠT'?'good':'bad'}">${v}</span>`;
+  const pctCell=p=>p==null?'<span class="muted">–</span>':`<b style="color:${p>=100?'var(--good)':p>=80?'var(--warn)':'var(--bad)'}">${p}%</b>`;
+  const byTeam={};d.rows.forEach(r=>(byTeam[r.team]=byTeam[r.team]||[]).push(r));
+  const head=`<tr><th>Team / Sale</th><th class="r">Mục tiêu</th><th class="r">DS khách sale</th>${C.map(c=>`<th class="r">${c[1]}</th>`).join('')}<th class="r">Bán cho KH mới</th><th class="r">DS khách sếp</th><th class="r">TỔNG</th><th class="r">% KPI</th><th>Tình trạng</th><th class="r">Kỳ trước</th></tr>`;
+  const teamRow=g=>`<tr style="background:var(--brand-2);font-weight:600"><td>TỔNG TEAM ${esc(g.team).toUpperCase()}</td><td class="r">${money(g.target)}</td><td class="r">${money(g.rev_sale)}</td>${C.map(c=>`<td class="r">${money(g[c[0]])}</td>`).join('')}<td class="r">${money(g.new_customer_rev)}</td><td class="r">${money(g.rev_boss)}</td><td class="r">${money(g.total)}</td><td class="r">${pctCell(g.pct)}</td><td>${st(g.status)}</td><td class="r muted">${money(g.prev)}</td></tr>`;
+  const saleRow=r=>`<tr><td style="padding-left:22px">${esc(r.sale)}</td><td class="r muted">${money(r.target)}</td><td class="r">${money(r.rev_sale)}</td>${C.map(c=>`<td class="r">${money(r[c[0]])}</td>`).join('')}<td class="r">${money(r.new_customer_rev)}</td><td class="r">${money(r.rev_boss)}</td><td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td><td class="r muted">${money(r.prev)}</td></tr>`;
+  const body=d.teams.map(g=>teamRow(g)+(byTeam[g.team]||[]).map(saleRow).join('')).join('');
+  const T=k=>d.rows.reduce((a,r)=>a+(r[k]||0),0);
+  m.innerHTML=topbar('Bảng doanh số',{sale:false,exportKey:'board',extra:`<select class="f" id="fBasis"><option value="customer" ${d.basis==='customer'?'selected':''}>Tính theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tính theo người bán trên hoá đơn</option></select>`})+
+  `<div class="grid g4"><div class="card tile"><h3>Tổng doanh số</h3><div class="v">${fmtK(T('total'))}</div><div class="d">khách sale ${fmtK(T('rev_sale'))} · khách sếp ${fmtK(T('rev_boss'))}</div></div>
+   <div class="card tile"><h3>Mục tiêu</h3><div class="v">${fmtK(T('target'))}</div><div class="d">${T('target')?'đạt '+Math.round(T('total')/T('target')*100)+'%':'chưa đặt chỉ tiêu'} · <a href="#kpi">đặt</a></div></div>
+   <div class="card tile"><h3>Độc quyền (mới + cũ)</h3><div class="v">${fmtK(T('excl_new')+T('excl_old'))}</div><div class="d">mới ${fmtK(T('excl_new'))} · cũ ${fmtK(T('excl_old'))}</div></div>
+   <div class="card tile"><h3>Bán cho khách mới</h3><div class="v">${fmtK(T('new_customer_rev'))}</div><div class="d">khách mua lần đầu trong kỳ</div></div></div>
+  <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'}</span></h3>
+   <div class="tablewrap"><table id="t"><thead>${head}</thead><tbody>${body||'<tr><td colspan="12" class="empty">Chưa có dữ liệu</td></tr>'}</tbody></table></div>
+   <p class="small muted">Cột nhóm hàng tính trên phần khách sale (giống bảng Excel). Đánh dấu khách sếp và xếp team ở trang Cài đặt.</p></div>`;
+  bindTopbar('board');
+  $('#fBasis').onchange=async e=>{state.basis=e.target.value;await api('/teams',{method:'POST',body:{basis:e.target.value}});loadPage()};
+}
 
 // ============================================================================
 // Công việc & nhắc việc
@@ -477,6 +529,7 @@ async function openCustomer(id){
   mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">${esc(c.name)} <span class="muted small">${esc(c.code)}</span></h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
   <div class="grid g2" style="margin-top:12px"><div class="kv"><b>SĐT</b><span>${esc(c.contact_number||'')}</span><b>Sinh nhật</b><span>${dmy(c.birth_date)||'–'}</span><b>Địa chỉ</b><span>${esc([c.address,c.ward_name,c.location_name].filter(Boolean).join(', '))}</span><b>Nhóm KH</b><span>${esc(c.groups||'')}</span><b>Ghi chú KiotViet</b><span>${esc(c.comments||'')}</span>
     <b>Sale phụ trách</b><span>${esc(c.sale)} ${state.user.role!=='sale'?`<select id="asg" style="margin-left:8px"><option value="">(tự động: ${esc(c.sale_name||'chưa có')})</option>${state.sales.filter(s=>s!=='(Chưa gán)').map(s=>`<option ${s===c.sale_manual?'selected':''}>${esc(s)}</option>`).join('')}</select>`:''}</span>
+    <b>Khách sếp</b><span><label style="cursor:pointer"><input type="checkbox" id="cBoss" ${c.is_boss?'checked':''} ${state.user.role==='sale'?'disabled':''}> tách riêng khỏi doanh số sale</label></span>
     <b>Tạo ngày</b><span>${dmy(c.created_date)} ${c.created_by?'bởi '+esc(c.created_by):''} <button class="btn small" onclick="newTask(${c.id})">+ Giao việc</button></span><b>Công nợ</b><span>${fmt(c.debt)}</span><b>Điểm</b><span>${fmt(c.reward_point)}</span></div>
     <div><h3>Doanh số theo tháng</h3><div class="chart" style="height:180px"><canvas id="cm"></canvas></div></div></div>
   <div class="grid g2" style="margin-top:12px"><div><h3>Hoá đơn gần đây</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Sale</th><th class="r">Tổng</th><th>TT</th></tr></thead><tbody>${d.invoices.map(i=>`<tr><td>${esc(i.code)}</td><td>${dmy(i.purchase_date)}</td><td>${esc(i.sold_by_name||'')}</td><td class="r">${fmt(i.total)}</td><td><span class="tag ${i.status_value==='Hoàn thành'?'good':i.status_value==='Đã hủy'?'bad':''}">${esc(i.status_value||'')}</span></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Chưa có hoá đơn</td></tr>'}</tbody></table></div></div>
@@ -485,6 +538,7 @@ async function openCustomer(id){
   <textarea id="note" placeholder="Thêm ghi chú (gọi điện, hẹn gặp, phản hồi...)" style="margin-top:8px"></textarea><div class="row" style="margin-top:6px"><button class="btn primary" id="bNote">Lưu ghi chú</button></div>`;
   $('#modal').classList.add('open');
   $('#bNote').onclick=async()=>{const v=$('#note').value.trim();if(!v)return;await api(`/customers/${id}/notes`,{method:'POST',body:{content:v}});openCustomer(id)};
+  const cb=$('#cBoss');if(cb&&!cb.disabled)cb.onchange=async()=>{await api('/boss',{method:'POST',body:{id:id,on:cb.checked}});toast(cb.checked?'Đã đánh dấu khách sếp':'Đã bỏ đánh dấu')};
   const a=$('#asg');if(a)a.onchange=async()=>{await api(`/customers/${id}/sale`,{method:'POST',body:{sale:a.value}});toast('Đã gán sale');state.sales=await api('/sales')};
   chart('cm',{type:'bar',data:{labels:d.monthly.map(x=>x.ym.slice(5)+'/'+x.ym.slice(2,4)),datasets:[{data:d.monthly.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+d.monthly[c.dataIndex].n+' HĐ'}}}})});
 }

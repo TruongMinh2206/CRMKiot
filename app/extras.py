@@ -1,6 +1,6 @@
 """KPI theo sale · Công việc & nhắc việc · Khách tiềm năng."""
 from datetime import date, datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from . import db, reports, config
 from .main_auth import current_user
 
@@ -325,3 +325,108 @@ async def lead_convert(lid: int, request: Request, user=Depends(current_user)):
     with db.cursor() as con:
         con.execute("UPDATE leads SET status='won', converted_customer_id=?, updated=? WHERE id=?", (b.get("customer_id"), _now(), lid))
     return {"ok": True}
+
+
+# ===========================================================================
+# Bảng doanh số theo mẫu Excel: team · khách sếp · nhóm hàng
+# ===========================================================================
+@router.get("/board")
+def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), basis: str = None, user=Depends(current_user)):
+    from datetime import date as _d
+    today = _d.today()
+    f = from_d or today.replace(day=1).isoformat()
+    t = to_d or today.isoformat()
+    basis = basis or db.get_meta("report_basis") or "customer"
+    b = reports.sales_board(f, t, basis)
+    if user["role"] == "sale":
+        me = user.get("sale_name")
+        b["rows"] = [r for r in b["rows"] if r["sale"] == me]
+        b["teams"] = [g for g in b["teams"] if any(r["team"] == g["team"] for r in b["rows"])]
+    return b
+
+
+@router.get("/teams")
+def teams_get(user=Depends(current_user)):
+    """Danh sách người để xếp team, sắp theo doanh số 12 tháng (người bán nhiều lên đầu)."""
+    rev = {}
+    for r in db.rows("""SELECT sold_by_name s, SUM(total) v FROM invoices
+                        WHERE status=1 AND purchase_date >= date('now','-365 days')
+                          AND sold_by_name IS NOT NULL AND sold_by_name<>'' GROUP BY 1"""):
+        rev[r["s"]] = r["v"] or 0
+    for r in db.rows(f"""SELECT {reports.sale_expr()} s, SUM(i.total) v FROM invoices i
+                         JOIN customers c ON c.id=i.customer_id
+                         WHERE i.status=1 AND i.purchase_date >= date('now','-365 days') GROUP BY 1"""):
+        rev[r["s"]] = max(rev.get(r["s"], 0), r["v"] or 0)
+    rev.pop("(Chưa gán)", None)
+    people = [{"name": n, "revenue": v} for n, v in rev.items()]
+    people.sort(key=lambda x: -x["revenue"])
+    return {"teams": db.rows("SELECT sale, team FROM teams ORDER BY team, sale"),
+            "people": people, "basis": db.get_meta("report_basis") or "customer"}
+
+
+@router.post("/teams")
+async def teams_save(request: Request, user=Depends(current_user)):
+    if not _is_mgr(user):
+        raise HTTPException(403)
+    b = await request.json()
+    with db.cursor() as con:
+        if b.get("replace") is not None:
+            con.execute("DELETE FROM teams")
+            for it in b["replace"]:
+                if it.get("sale"):
+                    con.execute("INSERT OR REPLACE INTO teams(sale,team) VALUES(?,?)", (it["sale"], (it.get("team") or "").strip()))
+        elif b.get("sale"):
+            if (b.get("team") or "").strip():
+                con.execute("INSERT OR REPLACE INTO teams(sale,team) VALUES(?,?)", (b["sale"], b["team"].strip()))
+            else:
+                con.execute("DELETE FROM teams WHERE sale=?", (b["sale"],))
+    if b.get("basis") in ("customer", "invoice"):
+        db.set_meta("report_basis", b["basis"])
+    return {"ok": True}
+
+
+@router.get("/catmap")
+def catmap_get(user=Depends(current_user)):
+    return {"marks": reports.trade_marks(), "cats": reports.CAT_KEYS}
+
+
+@router.post("/catmap")
+async def catmap_save(request: Request, user=Depends(current_user)):
+    if not _is_mgr(user):
+        raise HTTPException(403)
+    import json as _j
+    b = await request.json()
+    db.set_meta("cat_map", _j.dumps(b.get("map") or {}, ensure_ascii=False))
+    return {"ok": True}
+
+
+@router.get("/boss")
+def boss_list(user=Depends(current_user)):
+    rows = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number,
+        COALESCE((SELECT SUM(i.total) FROM invoices i WHERE i.customer_id=c.id AND i.status=1
+                  AND i.purchase_date >= date('now','-365 days')),0) rev
+        FROM customers c WHERE COALESCE(c.is_boss,0)=1 ORDER BY rev DESC""")
+    return rows
+
+
+@router.post("/boss")
+async def boss_save(request: Request, user=Depends(current_user)):
+    """Đánh dấu / bỏ đánh dấu khách sếp. Nhận id lẻ hoặc danh sách mã KH dán từ Excel."""
+    if not _is_mgr(user):
+        raise HTTPException(403)
+    b = await request.json()
+    n = 0
+    with db.cursor() as con:
+        if b.get("id") is not None:
+            con.execute("UPDATE customers SET is_boss=? WHERE id=?", (1 if b.get("on") else 0, b["id"]))
+            n = 1
+        elif b.get("codes"):
+            if b.get("reset"):
+                con.execute("UPDATE customers SET is_boss=0")
+            for line in str(b["codes"]).replace(",", "\n").replace("\t", "\n").splitlines():
+                v = line.strip()
+                if not v:
+                    continue
+                cur = con.execute("UPDATE customers SET is_boss=1 WHERE code=? OR name=?", (v, v))
+                n += cur.rowcount
+    return {"ok": True, "updated": n}

@@ -324,3 +324,119 @@ def search_customers(q, sale=None, limit=50):
     return db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} sale, c.total_revenue, c.debt, c.groups
         FROM customers c WHERE c.is_active=1 AND (c.name LIKE ? OR c.code LIKE ? OR c.contact_number LIKE ?) {sf} ORDER BY c.total_revenue DESC LIMIT ?""",
                    (like, like, like) + sp + (limit,))
+
+
+# ---------------------------------------------------------------------------
+# BẢNG DOANH SỐ (mô phỏng bảng Excel của cửa hàng)
+# ---------------------------------------------------------------------------
+CAT_KEYS = [("normal", "Hàng thông thường"), ("excl_new", "Hàng hoá độc quyền mới"),
+            ("excl_old", "Hàng hoá độc quyền cũ"), ("slow", "Hàng tồn lâu - cận date")]
+DEFAULT_CAT_MAP = {
+    "ĐỘC QUYỀN MỚI": "excl_new",
+    "ĐỘC QUYỀN CŨ": "excl_old", "Độc Quyền": "excl_old",
+    "HÀNG TỒN LÂU": "slow", "HÀNG CẬN DATE": "slow",
+}
+
+
+def cat_map():
+    """Ánh xạ nhãn hiệu KiotViet -> cột nhóm hàng trong báo cáo (sửa được trong Cài đặt)."""
+    import json
+    raw = db.get_meta("cat_map")
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    return dict(DEFAULT_CAT_MAP)
+
+
+def trade_marks():
+    """Danh sách nhãn hiệu đang có kèm doanh số 12 tháng, để cấu hình ánh xạ."""
+    rows = db.rows(f"""SELECT COALESCE(p.trade_mark,'') tm, SUM(d.sub_total) rev, COUNT(DISTINCT p.id) n
+        FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id LEFT JOIN products p ON p.id=d.product_id
+        WHERE {INV_OK} AND i.purchase_date >= date('now','-365 days') GROUP BY 1 ORDER BY 2 DESC""")
+    m = cat_map()
+    for r in rows:
+        r["cat"] = m.get(r["tm"], "normal")
+    return rows
+
+
+def _seller_expr(basis):
+    if basis == "invoice":
+        return "COALESCE(NULLIF(i.sold_by_name,''),'(Không rõ)')"
+    return "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')"
+
+
+def sales_board(from_d, to_d, basis="customer", ym=None):
+    """Bảng doanh số: theo sale/team, tách khách sếp, tách nhóm hàng, so chỉ tiêu."""
+    import json
+    f, t, pf, pt = _period(from_d, to_d)
+    ym = ym or from_d[:7]
+    sx = _seller_expr(basis)
+    cm = cat_map()
+
+    # 1) Tổng theo hoá đơn: tách khách sale / khách sếp
+    totals = {}
+    for r in db.rows(f"""SELECT {sx} s,
+            SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN i.total ELSE 0 END) rev_boss,
+            SUM(CASE WHEN COALESCE(c.is_boss,0)=0 THEN i.total ELSE 0 END) rev_sale,
+            SUM(i.total) total, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
+        FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        totals[r["s"]] = r
+
+    # 2) Kỳ trước (để so sánh)
+    prev = {r["s"]: r["total"] for r in db.rows(f"""SELECT {sx} s, SUM(i.total) total
+        FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt))}
+
+    # 3) Nhóm hàng (chỉ tính trên khách sale, giống bảng Excel)
+    cats = {}
+    for r in db.rows(f"""SELECT {sx} s, COALESCE(NULLIF(d.trade_mark,''), p.trade_mark, '') tm, SUM(d.sub_total) rev
+        FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id
+        LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN products p ON p.id=d.product_id
+        WHERE {INV_OK} AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
+        key = cm.get(r["tm"] or "", "normal")
+        cats.setdefault(r["s"], {}).setdefault(key, 0)
+        cats[r["s"]][key] += r["rev"] or 0
+
+    # 4) Doanh số từ khách mua lần đầu trong kỳ
+    newc = {r["s"]: r["rev"] for r in db.rows(f"""
+        WITH firstbuy AS (SELECT customer_id, MIN(purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
+        SELECT {sx} s, SUM(i.total) rev FROM invoices i
+        LEFT JOIN customers c ON c.id=i.customer_id JOIN firstbuy fb ON fb.customer_id=i.customer_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? AND fb.d BETWEEN ? AND ? GROUP BY 1""", (f, t, f, t))}
+
+    targets = {r["sale"]: r for r in db.rows("SELECT * FROM kpi_targets WHERE ym=?", (ym,))}
+    team_of = {r["sale"]: r["team"] for r in db.rows("SELECT sale, team FROM teams")}
+
+    out = []
+    for s in set(totals) | set(targets):
+        tt = totals.get(s) or {}
+        c = cats.get(s, {})
+        tg = (targets.get(s) or {}).get("revenue_target") or 0
+        row = {"sale": s, "team": team_of.get(s) or "(Chưa xếp team)",
+               "rev_sale": tt.get("rev_sale", 0) or 0, "rev_boss": tt.get("rev_boss", 0) or 0,
+               "total": tt.get("total", 0) or 0, "invoices": tt.get("invoices", 0) or 0,
+               "customers": tt.get("customers", 0) or 0, "prev": prev.get(s, 0) or 0,
+               "new_customer_rev": newc.get(s, 0) or 0, "target": tg}
+        for k, _ in CAT_KEYS:
+            row[k] = c.get(k, 0)
+        row["pct"] = round(row["total"] / tg * 100, 1) if tg else None
+        row["status"] = None if tg == 0 else ("ĐẠT" if row["total"] >= tg else "K ĐẠT")
+        row["growth"] = _growth(row["total"], row["prev"])
+        out.append(row)
+    out.sort(key=lambda r: (r["team"], -r["total"]))
+
+    teams = {}
+    for r in out:
+        g = teams.setdefault(r["team"], {"team": r["team"], "target": 0, "rev_sale": 0, "rev_boss": 0,
+                                         "total": 0, "prev": 0, "new_customer_rev": 0,
+                                         **{k: 0 for k, _ in CAT_KEYS}})
+        for k in ("target", "rev_sale", "rev_boss", "total", "prev", "new_customer_rev") + tuple(k for k, _ in CAT_KEYS):
+            g[k] += r[k]
+    for g in teams.values():
+        g["pct"] = round(g["total"] / g["target"] * 100, 1) if g["target"] else None
+        g["status"] = None if not g["target"] else ("ĐẠT" if g["total"] >= g["target"] else "K ĐẠT")
+    return {"basis": basis, "ym": ym, "from": from_d, "to": to_d, "rows": out,
+            "teams": sorted(teams.values(), key=lambda g: -g["total"]), "cats": CAT_KEYS}

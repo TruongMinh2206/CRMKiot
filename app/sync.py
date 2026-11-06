@@ -229,17 +229,20 @@ def sync_all(full=False):
                     state["progress"] = f"Khách hàng: {counts['customers']}"
 
         state["progress"] = "Hàng hoá"
+        prod_from = None if db.get_meta("trade_mark_filled") != "1" else last_from
         with db.cursor() as con:
-            for p in k.products(last_from):
+            for p in k.products(prod_from):
                 counts["products"] += 1
                 inv = p.get("inventories") or []
                 on_hand = sum((i.get("onHand") or 0) for i in inv)
                 cost = _m(next((i.get("cost") for i in inv if i.get("cost")), None))
                 con.execute("""INSERT OR REPLACE INTO products(id,code,name,full_name,category_id,category_name,base_price,cost,
-                    on_hand,is_active,unit,created_date,modified_date,raw) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    on_hand,is_active,unit,created_date,modified_date,raw,trade_mark) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (p["id"], p.get("code"), p.get("name"), p.get("fullName"), p.get("categoryId"), p.get("categoryName"),
                              _m(p.get("basePrice")), cost, on_hand, 0 if p.get("isActive") is False else 1, p.get("unit"),
-                             _d(p.get("createdDate")), _d(p.get("modifiedDate")), None))
+                             _d(p.get("createdDate")), _d(p.get("modifiedDate")), None, p.get("tradeMarkName")))
+
+        db.set_meta("trade_mark_filled", "1")
 
         state["progress"] = "Hoá đơn"
         if last_from:
@@ -322,9 +325,10 @@ def _sync_invoices(k, **kw):
             con.execute("DELETE FROM invoice_details WHERE invoice_id=?", (v["id"],))
             for i, d in enumerate(v.get("invoiceDetails") or []):
                 con.execute("""INSERT INTO invoice_details(invoice_id,line,product_id,product_code,product_name,category_name,
-                    quantity,price,discount,sub_total) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    quantity,price,discount,sub_total,trade_mark) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                             (v["id"], i, d.get("productId"), d.get("productCode"), d.get("productName"), d.get("categoryName"),
-                             d.get("quantity"), _m(d.get("price")), _m(d.get("discount")), _m(d.get("subTotal"))))
+                             d.get("quantity"), _m(d.get("price")), _m(d.get("discount")), _m(d.get("subTotal")),
+                             d.get("tradeMarkName")))
             if n % 200 == 0:
                 con.commit()
                 state["progress"] = state["progress"].split(" (")[0] + f" ({n})"

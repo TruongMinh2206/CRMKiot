@@ -12,6 +12,7 @@ tính sẵn các báo cáo mà kế toán đang phải làm tay:
 | Hàng nhanh/chậm | Từng mặt hàng: SL bán, tốc độ bán/ngày, tồn kho, số ngày tồn còn, vốn đọng, phân loại nhanh/chậm/không bán |
 | Hành trình đơn | Phễu đơn hàng → hoá đơn → giao hàng, thời gian xử lý, đơn đang kẹt, theo sale, theo kênh |
 | Sinh nhật KH | Khách có sinh nhật trong N ngày tới, kèm sale phụ trách, SĐT, mua gần nhất |
+| Bảng doanh số | Mô phỏng bảng Excel của cửa hàng: nhóm theo team, tách khách sếp khỏi khách sale, chia nhóm hàng (thông thường / độc quyền mới / độc quyền cũ / tồn lâu - cận date), doanh số bán cho khách mới, % KPI, ĐẠT / K ĐẠT |
 | Công việc | Việc cần làm theo sale (quá hạn/hôm nay/sắp tới), gợi ý tự động: sinh nhật, đến kỳ mua lại (theo chu kỳ mua TB của từng khách), khách giá trị đang ngừng mua |
 | KPI sale | Chỉ tiêu tháng (doanh số, KH mới, KH có mua), % đạt, dự báo cuối tháng, bảng xếp hạng |
 | Khách tiềm năng | Lead chưa có trên KiotViet: nguồn, sale, phễu Mới → Đã liên hệ → Đang tư vấn → Chốt/Thất bại, lý do thất bại, tỷ lệ chốt theo sale/nguồn, dán từ Excel, tự nhận diện khi SĐT đã có trên KiotViet |
@@ -52,6 +53,18 @@ Theo quy ước của cửa hàng, sale được ghi ở **đuôi tên khách** 
 Các từ `Lybyn`, `LB` được bỏ qua. Khách không có đuôi tên → lấy nhân viên bán nhiều hoá đơn nhất cho khách đó.
 Tại Cài đặt → **Bí danh sale**, gộp các cách viết khác nhau (`Linh`, `TLL`, `Linh Lybyn`) về một tên.
 Có thể gán tay từng khách trong hồ sơ khách (ưu tiên cao nhất).
+
+## Hai cách tính doanh số sale
+
+- **Theo sale phụ trách khách** (đuôi tên khách): doanh số của khách thuộc về sale phụ trách, bất kể ai lên hoá đơn.
+- **Theo người bán trên hoá đơn** (`soldByName` của KiotViet): giống cách bảng Excel của cửa hàng đang tính.
+
+Chuyển qua lại bằng ô chọn ở đầu trang **Bảng doanh số**; lựa chọn được ghi nhớ.
+
+Trong Cài đặt còn có: **Xếp team** (gom sale thành team), **Khách sếp** (đánh dấu khách tách riêng khỏi doanh số sale),
+và **Nhóm hàng cho báo cáo** (ánh xạ Nhãn hiệu của KiotViet sang 4 cột nhóm hàng).
+
+"Bán cho khách mới" = doanh số từ khách có hoá đơn **đầu tiên** rơi vào kỳ đang xem.
 
 Đổi cách nhận diện bằng `SALE_SOURCE` trong `.env`: `auto` (mặc định) | `name` | `group` | `created_by` | `invoice` | `manual`.
 
