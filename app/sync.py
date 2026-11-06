@@ -334,6 +334,8 @@ def _sync_invoices(k, **kw):
                          v.get("statusValue"), 1 if v.get("usingCod") else 0, _d(v.get("createdDate")), _d(v.get("modifiedDate")),
                          dl.get("status"), dl.get("statusValue"), dl.get("deliveryCode"), None))
             con.execute("DELETE FROM invoice_details WHERE invoice_id=?", (v["id"],))
+            net = sum(_m(d.get("subTotal")) or 0 for d in (v.get("invoiceDetails") or []))
+            con.execute("UPDATE invoices SET net_total=? WHERE id=?", (net if v.get("invoiceDetails") else _m(v.get("total")), v["id"]))
             for i, d in enumerate(v.get("invoiceDetails") or []):
                 con.execute("""INSERT INTO invoice_details(invoice_id,line,product_id,product_code,product_name,category_name,
                     quantity,price,discount,sub_total,trade_mark) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",

@@ -125,6 +125,14 @@ def init():
         if "lead_id" not in cols:
             con.execute("ALTER TABLE notes ADD COLUMN lead_id INTEGER")
         # Bỏ cột raw không dùng ở invoices/products/orders -> DB nhẹ đi ~4 lần
+        icols = [r[1] for r in con.execute("PRAGMA table_info(invoices)")]
+        if "net_total" not in icols:
+            con.execute("ALTER TABLE invoices ADD COLUMN net_total REAL")
+            con.execute("DELETE FROM meta WHERE key='net_total_filled'")
+        if not con.execute("SELECT 1 FROM meta WHERE key='net_total_filled'").fetchone():
+            con.execute("""UPDATE invoices SET net_total = COALESCE(
+                (SELECT SUM(d.sub_total) FROM invoice_details d WHERE d.invoice_id = invoices.id), total)""")
+            con.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('net_total_filled','1')")
         pcols = [r[1] for r in con.execute("PRAGMA table_info(products)")]
         if "trade_mark" not in pcols:
             con.execute("ALTER TABLE products ADD COLUMN trade_mark TEXT")

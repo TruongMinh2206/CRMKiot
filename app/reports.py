@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 from . import db, config
 
 INV_OK = "i.status = 1"  # hoá đơn hoàn thành
+REV = "COALESCE(i.net_total, i.total)"  # tiền hàng (không gồm phụ thu) — khớp báo cáo KiotViet
 
 
 def _period(from_d, to_d):
@@ -37,8 +38,8 @@ def customers_by_sale(from_d, to_d):
     churn = (datetime.fromisoformat(from_d) - timedelta(days=config.CHURN_DAYS)).strftime("%Y-%m-%d")
     sql = f"""
     WITH c2 AS (SELECT c.id, {sale_expr()} AS sale, c.created_date FROM customers c WHERE c.is_active=1),
-    cur AS (SELECT i.customer_id, SUM(i.total) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
-    prev AS (SELECT i.customer_id, SUM(i.total) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
+    cur AS (SELECT i.customer_id, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
+    prev AS (SELECT i.customer_id, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
     lastbuy AS (SELECT i.customer_id, MAX(i.purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1),
     firstbuy AS (SELECT i.customer_id, MIN(i.purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
     SELECT c2.sale,
@@ -78,7 +79,7 @@ def customer_trend(months=12, sale=None):
     start = (date.today().replace(day=1) - timedelta(days=31 * (months - 1))).replace(day=1).isoformat()
     sql = f"""
     WITH cust AS (SELECT c.id, c.created_date FROM customers c WHERE 1=1 {sf}),
-    buys AS (SELECT i.customer_id, substr(i.purchase_date,1,7) ym, SUM(i.total) rev FROM invoices i
+    buys AS (SELECT i.customer_id, substr(i.purchase_date,1,7) ym, SUM(COALESCE(i.net_total, i.total)) rev FROM invoices i
              JOIN cust ON cust.id=i.customer_id WHERE {INV_OK} GROUP BY 1,2),
     firstbuy AS (SELECT customer_id, MIN(ym) ym FROM buys GROUP BY 1),
     m AS (SELECT DISTINCT ym FROM buys WHERE ym >= substr(?,1,7) UNION SELECT DISTINCT substr(created_date,1,7) FROM cust WHERE created_date >= ?)
@@ -114,9 +115,9 @@ def customer_revenue(from_d, to_d, sale=None, limit=4000):
     sf, sp = _sale_filter(sale)
     today = date.today().isoformat()
     sql = f"""
-    WITH cur AS (SELECT customer_id, SUM(total) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
-    prev AS (SELECT customer_id, SUM(total) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
-    allb AS (SELECT customer_id, SUM(total) rev, COUNT(*) n, MAX(purchase_date) last_d, MIN(purchase_date) first_d FROM invoices i WHERE {INV_OK} GROUP BY 1)
+    WITH cur AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
+    prev AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
+    allb AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n, MAX(purchase_date) last_d, MIN(purchase_date) first_d FROM invoices i WHERE {INV_OK} GROUP BY 1)
     SELECT c.id, c.code, c.name, c.contact_number, c.groups, {sale_expr()} AS sale, c.debt,
       COALESCE(cur.rev,0) revenue, COALESCE(cur.n,0) invoices, COALESCE(prev.rev,0) revenue_prev, COALESCE(prev.n,0) invoices_prev,
       COALESCE(allb.rev,0) lifetime_revenue, COALESCE(allb.n,0) lifetime_invoices, allb.last_d last_purchase, allb.first_d first_purchase,
@@ -151,9 +152,9 @@ def revenue_summary(from_d, to_d, sale=None):
     f, t, pf, pt = _period(from_d, to_d)
     sf, sp = _sale_filter(sale)
     join = "JOIN customers c ON c.id=i.customer_id" if sale else "LEFT JOIN customers c ON c.id=i.customer_id"
-    cur = db.one(f"SELECT COALESCE(SUM(i.total),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (f, t) + sp)
-    prev = db.one(f"SELECT COALESCE(SUM(i.total),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (pf, pt) + sp)
-    daily = db.rows(f"SELECT substr(i.purchase_date,1,10) d, SUM(i.total) rev, COUNT(*) n FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 1", (f, t) + sp)
+    cur = db.one(f"SELECT COALESCE(SUM(COALESCE(i.net_total, i.total)),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (f, t) + sp)
+    prev = db.one(f"SELECT COALESCE(SUM(COALESCE(i.net_total, i.total)),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (pf, pt) + sp)
+    daily = db.rows(f"SELECT substr(i.purchase_date,1,10) d, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 1", (f, t) + sp)
     return {"revenue": cur["rev"], "invoices": cur["n"], "customers": cur["cust"],
             "revenue_prev": prev["rev"], "invoices_prev": prev["n"], "customers_prev": prev["cust"],
             "revenue_growth": _growth(cur["rev"], prev["rev"]), "daily": daily,
@@ -223,10 +224,10 @@ def order_journey(from_d, to_d, sale=None):
     orders = db.rows(f"SELECT o.status, COALESCE(o.status_value, '') sv, COUNT(*) n, COALESCE(SUM(o.total),0) total FROM orders o {join} WHERE o.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1,2 ORDER BY 1", (f, t) + sp)
     for r in orders:
         r["label"] = r["sv"] or ORDER_STATUS.get(r["status"], str(r["status"]))
-    invs = db.rows(f"SELECT i.status, COALESCE(i.status_value,'') sv, COUNT(*) n, COALESCE(SUM(i.total),0) total FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1,2 ORDER BY 1", (f, t) + sp)
+    invs = db.rows(f"SELECT i.status, COALESCE(i.status_value,'') sv, COUNT(*) n, COALESCE(SUM(COALESCE(i.net_total, i.total)),0) total FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1,2 ORDER BY 1", (f, t) + sp)
     for r in invs:
         r["label"] = r["sv"] or INVOICE_STATUS.get(r["status"], str(r["status"]))
-    delivery = db.rows(f"SELECT COALESCE(i.delivery_status_value, 'Không giao hàng') label, COUNT(*) n, COALESCE(SUM(i.total),0) total FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 2 DESC", (f, t) + sp)
+    delivery = db.rows(f"SELECT COALESCE(i.delivery_status_value, 'Không giao hàng') label, COUNT(*) n, COALESCE(SUM(COALESCE(i.net_total, i.total)),0) total FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 2 DESC", (f, t) + sp)
     # Đơn đang kẹt: phiếu tạm / đã xác nhận / đang giao quá 3 ngày
     stuck = db.rows(f"""SELECT o.code, o.purchase_date, o.customer_name, o.sold_by_name, o.total, COALESCE(o.status_value,'') status,
         CAST(julianday('now','localtime') - julianday(o.purchase_date) AS INTEGER) age_days, o.delivery_status_value
@@ -245,27 +246,27 @@ def order_journey(from_d, to_d, sale=None):
     # Hành trình theo hoá đơn (cửa hàng xuất hoá đơn trực tiếp, ít dùng đơn đặt)
     inv_funnel = db.one(f"""SELECT COUNT(*) total, SUM(CASE WHEN i.status=1 THEN 1 ELSE 0 END) done,
         SUM(CASE WHEN i.status=2 THEN 1 ELSE 0 END) cancelled, SUM(CASE WHEN i.status NOT IN (1,2) THEN 1 ELSE 0 END) pending,
-        SUM(CASE WHEN i.status=1 AND i.total_payment >= i.total - 1 THEN 1 ELSE 0 END) paid_full,
-        SUM(CASE WHEN i.status=1 AND i.total_payment < i.total - 1 THEN 1 ELSE 0 END) unpaid,
-        COALESCE(SUM(CASE WHEN i.status=1 THEN i.total - i.total_payment END),0) unpaid_amount,
+        SUM(CASE WHEN i.status=1 AND i.total_payment >= COALESCE(i.net_total,i.total) - 1 THEN 1 ELSE 0 END) paid_full,
+        SUM(CASE WHEN i.status=1 AND i.total_payment < COALESCE(i.net_total,i.total) - 1 THEN 1 ELSE 0 END) unpaid,
+        COALESCE(SUM(CASE WHEN i.status=1 THEN COALESCE(i.net_total,i.total) - i.total_payment END),0) unpaid_amount,
         SUM(CASE WHEN i.using_cod=1 THEN 1 ELSE 0 END) cod,
         SUM(CASE WHEN i.delivery_status IS NOT NULL THEN 1 ELSE 0 END) with_delivery
         FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf}""", (f, t) + sp)
     inv_by_sale = db.rows(f"""SELECT COALESCE(i.sold_by_name,'(Không rõ)') sale, COUNT(*) n,
         SUM(CASE WHEN i.status=1 THEN 1 ELSE 0 END) done, SUM(CASE WHEN i.status=2 THEN 1 ELSE 0 END) cancelled,
-        COALESCE(SUM(CASE WHEN i.status=1 THEN i.total END),0) total,
-        COALESCE(SUM(CASE WHEN i.status=1 THEN i.total - i.total_payment END),0) unpaid,
+        COALESCE(SUM(CASE WHEN i.status=1 THEN COALESCE(i.net_total,i.total) END),0) total,
+        COALESCE(SUM(CASE WHEN i.status=1 THEN COALESCE(i.net_total,i.total) - i.total_payment END),0) unpaid,
         COUNT(DISTINCT i.customer_id) customers
         FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY total DESC""", (f, t) + sp)
-    by_branch = db.rows(f"""SELECT COALESCE(i.branch_name,'?') branch, COUNT(*) n, COALESCE(SUM(CASE WHEN i.status=1 THEN i.total END),0) total
+    by_branch = db.rows(f"""SELECT COALESCE(i.branch_name,'?') branch, COUNT(*) n, COALESCE(SUM(CASE WHEN i.status=1 THEN COALESCE(i.net_total,i.total) END),0) total
         FROM invoices i {joini} WHERE i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 2 DESC""", (f, t) + sp)
     by_hour = db.rows(f"""SELECT CAST(substr(i.purchase_date,12,2) AS INTEGER) h, COUNT(*) n FROM invoices i {joini}
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 1""", (f, t) + sp)
-    by_dow = db.rows(f"""SELECT CAST(strftime('%w', i.purchase_date) AS INTEGER) d, COUNT(*) n, COALESCE(SUM(i.total),0) total FROM invoices i {joini}
+    by_dow = db.rows(f"""SELECT CAST(strftime('%w', i.purchase_date) AS INTEGER) d, COUNT(*) n, COALESCE(SUM(COALESCE(i.net_total, i.total)),0) total FROM invoices i {joini}
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 1""", (f, t) + sp)
-    unpaid_list = db.rows(f"""SELECT i.code, i.purchase_date, i.customer_name, i.sold_by_name, i.total, i.total_payment, i.total - i.total_payment remain,
+    unpaid_list = db.rows(f"""SELECT i.code, i.purchase_date, i.customer_name, i.sold_by_name, COALESCE(i.net_total,i.total) total, i.total_payment, COALESCE(i.net_total,i.total) - i.total_payment remain,
         CAST(julianday('now','localtime') - julianday(i.purchase_date) AS INTEGER) age_days
-        FROM invoices i {joini} WHERE i.status=1 AND i.total_payment < i.total - 1 {sf} ORDER BY remain DESC LIMIT 200""", sp)
+        FROM invoices i {joini} WHERE i.status=1 AND i.total_payment < COALESCE(i.net_total,i.total) - 1 {sf} ORDER BY remain DESC LIMIT 200""", sp)
     return {"orders": orders, "invoices": invs, "delivery": delivery, "stuck": stuck,
             "inv_funnel": inv_funnel, "inv_by_sale": inv_by_sale, "by_branch": by_branch, "by_hour": by_hour, "by_dow": by_dow, "unpaid_list": unpaid_list,
             "lead_hours": round(lead["hours"], 1) if lead and lead["hours"] is not None else None, "lead_n": lead["n"] if lead else 0,
@@ -310,10 +311,10 @@ def customer_detail(cid):
     if not c:
         return None
     c.pop("raw", None)
-    invs = db.rows("SELECT id, code, purchase_date, sold_by_name, total, status_value, delivery_status_value, branch_name FROM invoices WHERE customer_id=? ORDER BY purchase_date DESC LIMIT 100", (cid,))
+    invs = db.rows("SELECT id, code, purchase_date, sold_by_name, COALESCE(net_total,total) total, status_value, delivery_status_value, branch_name FROM invoices WHERE customer_id=? ORDER BY purchase_date DESC LIMIT 100", (cid,))
     items = db.rows(f"""SELECT d.product_name, SUM(d.quantity) qty, SUM(d.sub_total) rev, MAX(i.purchase_date) last_d FROM invoice_details d
         JOIN invoices i ON i.id=d.invoice_id WHERE i.customer_id=? AND {INV_OK} GROUP BY d.product_id ORDER BY rev DESC LIMIT 50""", (cid,))
-    monthly = db.rows(f"SELECT substr(purchase_date,1,7) ym, SUM(total) rev, COUNT(*) n FROM invoices i WHERE customer_id=? AND {INV_OK} GROUP BY 1 ORDER BY 1 DESC LIMIT 24", (cid,))
+    monthly = db.rows(f"SELECT substr(purchase_date,1,7) ym, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE customer_id=? AND {INV_OK} GROUP BY 1 ORDER BY 1 DESC LIMIT 24", (cid,))
     notes = db.rows("SELECT * FROM notes WHERE customer_id=? ORDER BY created DESC", (cid,))
     return {"customer": c, "invoices": invs, "items": items, "monthly": monthly[::-1], "notes": notes}
 
@@ -419,12 +420,12 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
 
     bx = _seller_expr(basis, boss=True)
     totals = {}
-    for r in db.rows(f"""SELECT {sx} s, SUM(i.total) rev_sale, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
+    for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) rev_sale, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
         FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
         WHERE {INV_OK} AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
         totals[r["s"]] = {"rev_sale": r["rev_sale"] or 0, "rev_boss": 0,
                           "invoices": r["invoices"], "customers": r["customers"]}
-    for r in db.rows(f"""SELECT {bx} s, SUM(i.total) rev_boss, COUNT(*) invoices
+    for r in db.rows(f"""SELECT {bx} s, SUM(COALESCE(i.net_total, i.total)) rev_boss, COUNT(*) invoices
         FROM invoices i JOIN customers c ON c.id=i.customer_id
         WHERE {INV_OK} AND COALESCE(c.is_boss,0)=1 AND COALESCE(c.boss_no_kpi,0)=0
           AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
@@ -452,7 +453,7 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         v["ret_total"] = v["ret_sale"] + v["ret_boss"]
 
     prev = {}
-    for r in db.rows(f"""SELECT {sx} s, SUM(i.total) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+    for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
         prev[r["s"]] = r["v"] or 0
     for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
@@ -481,7 +482,7 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
 
     newc = {r["s"]: r["rev"] for r in db.rows(f"""
         WITH firstbuy AS (SELECT customer_id, MIN(purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
-        SELECT {sx} s, SUM(i.total) rev FROM invoices i
+        SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) rev FROM invoices i
         LEFT JOIN customers c ON c.id=i.customer_id JOIN firstbuy fb ON fb.customer_id=i.customer_id
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? AND fb.d BETWEEN ? AND ? GROUP BY 1""", (f, t, f, t))}
 
@@ -494,7 +495,7 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     if weekly:
         for w in weeks:
             wf, wt = w["from"], w["to"] + " 23:59:59"
-            for r in db.rows(f"""SELECT {sx} s, SUM(i.total) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+            for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
                 WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
                 wk.setdefault(r["s"], {})[w["week"]] = r["v"] or 0
             for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
