@@ -67,7 +67,25 @@ CREATE TABLE IF NOT EXISTS crm_users (
 CREATE TABLE IF NOT EXISTS sale_aliases (alias TEXT PRIMARY KEY, sale_name TEXT);
 
 CREATE TABLE IF NOT EXISTS notes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, created TEXT, author TEXT, content TEXT
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, lead_id INTEGER, created TEXT, author TEXT, content TEXT
+);
+
+CREATE TABLE IF NOT EXISTS kpi_targets (
+  sale TEXT, ym TEXT, revenue_target REAL DEFAULT 0, new_customers_target INTEGER DEFAULT 0,
+  buying_customers_target INTEGER DEFAULT 0, PRIMARY KEY (sale, ym)
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, lead_id INTEGER, title TEXT, type TEXT DEFAULT 'call',
+  due_date TEXT, assigned_to TEXT, status TEXT DEFAULT 'open', result TEXT, created TEXT, created_by TEXT,
+  done_at TEXT, auto_key TEXT UNIQUE, priority INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_tasks_due ON tasks(status, due_date);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, source TEXT, sale TEXT, status TEXT DEFAULT 'new',
+  value REAL DEFAULT 0, note TEXT, lost_reason TEXT, address TEXT, product_interest TEXT,
+  created TEXT, updated TEXT, created_by TEXT, converted_customer_id INTEGER, next_action TEXT, next_date TEXT
 );
 """
 
@@ -82,6 +100,10 @@ def connect():
 def init():
     with connect() as con:
         con.executescript(SCHEMA)
+        # nâng cấp nhẹ cho DB cũ
+        cols = [r[1] for r in con.execute("PRAGMA table_info(notes)")]
+        if "lead_id" not in cols:
+            con.execute("ALTER TABLE notes ADD COLUMN lead_id INTEGER")
 
 
 @contextmanager

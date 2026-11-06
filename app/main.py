@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import threading
 from datetime import date, datetime, timedelta
@@ -7,32 +6,15 @@ from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from itsdangerous import URLSafeSerializer, BadSignature
 
 from . import config, db, sync, reports, excel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
-signer = URLSafeSerializer(config.SECRET_KEY, salt="session")
-COOKIE = "crm_session"
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-def _hash(p):
-    return hashlib.sha256((config.SECRET_KEY + p).encode()).hexdigest()
-
-
-def current_user(request: Request):
-    tok = request.cookies.get(COOKIE)
-    if not tok:
-        raise HTTPException(401, "Chưa đăng nhập")
-    try:
-        return signer.loads(tok)
-    except BadSignature:
-        raise HTTPException(401, "Phiên không hợp lệ")
+from .main_auth import signer, COOKIE, _hash, current_user  # noqa
+from . import extras
+app.include_router(extras.router)
 
 
 def sale_scope(user, sale):
@@ -115,8 +97,12 @@ def _dates(from_d, to_d):
 def overview(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), sale: str = None, user=Depends(current_user)):
     f, t = _dates(from_d, to_d)
     s = sale_scope(user, sale)
+    today = date.today().isoformat()
+    tcond, tp = ("", ()) if user["role"] != "sale" else (" AND assigned_to=?", (user.get("sale_name") or "",))
     return {"summary": reports.revenue_summary(f, t, s), "birthdays": reports.birthdays(7, s)[:10],
-            "journey": reports.order_journey(f, t, s)["funnel"]}
+            "journey": reports.order_journey(f, t, s)["funnel"],
+            "tasks_today": db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date=? {tcond}", (today,) + tp)["n"],
+            "tasks_overdue": db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date<? {tcond}", (today,) + tp)["n"]}
 
 
 @app.get("/api/report/sales")
