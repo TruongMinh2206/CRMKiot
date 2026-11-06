@@ -288,6 +288,12 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
 
 
 # ---------------------------------------------------------------------------
+@app.get("/health")
+def health():
+    """Điểm ping để giữ web không ngủ (UptimeRobot / cron-job.org gọi mỗi 5 phút)."""
+    return {"ok": True, "syncing": sync.state["running"], "last_sync": db.get_meta("last_sync")}
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
