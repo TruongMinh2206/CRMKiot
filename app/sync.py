@@ -117,9 +117,14 @@ def canon_alias(alias, ctx):
     return re.sub(r"^(Nvkd|Nv|Kt|Gd|Ql|Tll|Nb|Ttl)(?=\s|$)", lambda m: m.group(1).upper(), t)
 
 
+def sale_source():
+    """Nguồn gán sale: đổi được ngay trong Cài đặt (lưu trong DB), mặc định lấy từ .env."""
+    return (db.get_meta("sale_source") or config.SALE_SOURCE or "auto").lower()
+
+
 def resolve_sale(c, ctx):
     """Trả về tên sale phụ trách từ dữ liệu khách hàng KiotViet."""
-    src = (config.SALE_SOURCE or "auto").lower()
+    src = sale_source()
 
     def by_name():
         return canon_alias(sale_from_name(c.get("name"), ctx["known"]), ctx)
@@ -348,7 +353,8 @@ def reapply_sales():
             except Exception:
                 c = {}
             con.execute("UPDATE customers SET sale_name=? WHERE id=?", (resolve_sale(c, ctx), r["id"]))
-    fill_sale_from_invoices()
+    if sale_source() not in ("name", "group", "manual"):
+        fill_sale_from_invoices()
 
 
 # ---------------------------------------------------------------------------

@@ -63,7 +63,7 @@ def status(user=Depends(current_user)):
     counts = {t: db.one(f"SELECT COUNT(*) n FROM {t}")["n"] for t in ("customers", "products", "invoices", "orders")}
     return {"sync": sync.state, "last_sync": db.get_meta("last_sync"), "log": last, "counts": counts,
             "retailer": config.KIOT_RETAILER, "configured": bool(config.KIOT_CLIENT_ID and config.KIOT_CLIENT_SECRET),
-            "sale_source": config.SALE_SOURCE, "backup": backup.enabled(), "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
+            "sale_source": sync.sale_source(), "backup": backup.enabled(), "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
 
 
 @app.post("/api/sync")
@@ -79,6 +79,22 @@ def run_sync(full: bool = False, user=Depends(current_user)):
 @app.get("/api/sales")
 def sales(user=Depends(current_user)):
     return reports.sales_list()
+
+
+@app.post("/api/settings")
+async def settings_save(request: Request, user=Depends(current_user)):
+    """Đổi cách gán sale / số ngày ngừng mua, áp dụng ngay không cần deploy lại."""
+    if user["role"] != "admin":
+        raise HTTPException(403)
+    b = await request.json()
+    src = (b.get("sale_source") or "").lower()
+    if src in ("auto", "name", "group", "created_by", "manual"):
+        db.set_meta("sale_source", src)
+    if b.get("churn_days"):
+        db.set_meta("churn_days", str(int(b["churn_days"])))
+        config.CHURN_DAYS = int(b["churn_days"])
+    sync.reapply_sales()
+    return {"ok": True, "sale_source": sync.sale_source()}
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +322,9 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 def startup():
     db.init()
     backup.restore()
+    cd = db.get_meta("churn_days")
+    if cd:
+        config.CHURN_DAYS = int(cd)
     sync.start_scheduler()
 
 
