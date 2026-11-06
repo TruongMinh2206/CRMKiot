@@ -62,8 +62,16 @@ def status(user=Depends(current_user)):
     last = db.rows("SELECT * FROM sync_log ORDER BY id DESC LIMIT 5")
     counts = {t: db.one(f"SELECT COUNT(*) n FROM {t}")["n"] for t in ("customers", "products", "invoices", "orders")}
     return {"sync": sync.state, "last_sync": db.get_meta("last_sync"), "log": last, "counts": counts,
+            "snapshot": backup.snapshot_info(),
             "retailer": config.KIOT_RETAILER, "configured": bool(config.KIOT_CLIENT_ID and config.KIOT_CLIENT_SECRET),
             "sale_source": sync.sale_source(), "backup": backup.enabled(), "churn_days": config.CHURN_DAYS, "interval": config.SYNC_INTERVAL_MIN}
+
+
+@app.post("/api/snapshot")
+def snapshot_now(user=Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403)
+    return {"ok": True, "result": backup.snapshot_db(force=True)}
 
 
 @app.post("/api/sync")
@@ -320,6 +328,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 @app.on_event("startup")
 def startup():
+    backup.restore_db()      # lấy lại toàn bộ DB nếu ổ đĩa vừa bị xoá
     db.init()
     backup.restore()
     cd = db.get_meta("churn_days")

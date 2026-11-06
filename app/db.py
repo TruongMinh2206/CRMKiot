@@ -106,6 +106,17 @@ def init():
         cols = [r[1] for r in con.execute("PRAGMA table_info(notes)")]
         if "lead_id" not in cols:
             con.execute("ALTER TABLE notes ADD COLUMN lead_id INTEGER")
+        # Bỏ cột raw không dùng ở invoices/products/orders -> DB nhẹ đi ~4 lần
+        done = con.execute("SELECT value FROM meta WHERE key='slim_v1'").fetchone()
+        if not done:
+            for t in ("invoices", "products", "orders"):
+                try:
+                    con.execute(f"UPDATE {t} SET raw=NULL WHERE raw IS NOT NULL")
+                except Exception:
+                    pass
+            con.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('slim_v1','1')")
+            con.commit()
+            con.execute("VACUUM")
 
 
 @contextmanager

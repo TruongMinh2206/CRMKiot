@@ -239,7 +239,7 @@ def sync_all(full=False):
                     on_hand,is_active,unit,created_date,modified_date,raw) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (p["id"], p.get("code"), p.get("name"), p.get("fullName"), p.get("categoryId"), p.get("categoryName"),
                              _m(p.get("basePrice")), cost, on_hand, 0 if p.get("isActive") is False else 1, p.get("unit"),
-                             _d(p.get("createdDate")), _d(p.get("modifiedDate")), json.dumps(p, ensure_ascii=False)))
+                             _d(p.get("createdDate")), _d(p.get("modifiedDate")), None))
 
         state["progress"] = "Hoá đơn"
         if last_from:
@@ -272,6 +272,11 @@ def sync_all(full=False):
         db.set_meta("last_sync", started.isoformat(timespec="seconds"))
         msg = "OK"
         ok = 1
+        try:
+            from . import backup
+            backup.snapshot_db(force=bool(full))
+        except Exception:
+            log.exception("snapshot after sync failed")
     except Exception as e:  # noqa
         log.exception("sync failed")
         msg = f"{type(e).__name__}: {e}"
@@ -313,7 +318,7 @@ def _sync_invoices(k, **kw):
                          v.get("soldById"), v.get("soldByName"), v.get("customerId"), v.get("customerCode"), v.get("customerName"),
                          v.get("orderCode"), _m(v.get("total")), _m(v.get("totalPayment")), _m(v.get("discount")), v.get("status"),
                          v.get("statusValue"), 1 if v.get("usingCod") else 0, _d(v.get("createdDate")), _d(v.get("modifiedDate")),
-                         dl.get("status"), dl.get("statusValue"), dl.get("deliveryCode"), json.dumps(v, ensure_ascii=False)))
+                         dl.get("status"), dl.get("statusValue"), dl.get("deliveryCode"), None))
             con.execute("DELETE FROM invoice_details WHERE invoice_id=?", (v["id"],))
             for i, d in enumerate(v.get("invoiceDetails") or []):
                 con.execute("""INSERT INTO invoice_details(invoice_id,line,product_id,product_code,product_name,category_name,
@@ -344,8 +349,7 @@ def _sync_orders(k, **kw):
                          o.get("soldById"), o.get("soldByName"), o.get("customerId"), o.get("customerCode"), o.get("customerName"),
                          _m(o.get("total")), _m(o.get("totalPayment")), o.get("status"), o.get("statusValue"),
                          sc.get("name") if isinstance(sc, dict) else o.get("saleChannelName"),
-                         _d(o.get("createdDate")), _d(o.get("modifiedDate")), dl.get("status"), dl.get("statusValue"),
-                         json.dumps(o, ensure_ascii=False)))
+                         _d(o.get("createdDate")), _d(o.get("modifiedDate")), dl.get("status"), dl.get("statusValue"), None))
             if n % 200 == 0:
                 con.commit()
         con.commit()

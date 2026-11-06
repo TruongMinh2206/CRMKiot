@@ -12,7 +12,9 @@ from . import db
 log = logging.getLogger("backup")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads"]
+SNAPSHOT_EVERY_HOURS = int(os.getenv("SNAPSHOT_EVERY_HOURS", "6"))
 _lock = threading.Lock()
+_db_lock = threading.Lock()
 
 
 def enabled():
@@ -112,3 +114,127 @@ def restore_customer_manual():
                 con.execute("UPDATE customers SET sale_manual=? WHERE id=? AND (sale_manual IS NULL OR sale_manual='')", (r["sale_manual"], r["id"]))
     except Exception:
         log.exception("restore customer_manual failed")
+
+
+# ===========================================================================
+# Bản sao toàn bộ cơ sở dữ liệu (để khởi động lại không phải tải lại KiotViet)
+# ===========================================================================
+import gzip
+import tempfile
+from datetime import datetime, timedelta
+from . import config
+
+
+def _ensure_db(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS crm_db_snapshot (
+        id INT PRIMARY KEY, data BYTEA NOT NULL, bytes INT, note TEXT, updated TIMESTAMPTZ DEFAULT now())""")
+
+
+def snapshot_info():
+    if not enabled():
+        return None
+    return {"at": db.get_meta("db_snapshot_at"), "bytes": db.get_meta("db_snapshot_bytes"),
+            "every_hours": SNAPSHOT_EVERY_HOURS}
+
+
+def snapshot_db(force=False, background=True):
+    """Nén toàn bộ file SQLite và cất lên Postgres (giới hạn tần suất)."""
+    if not enabled():
+        return "off"
+    last = db.get_meta("db_snapshot_at")
+    if not force and last:
+        try:
+            if datetime.now() - datetime.fromisoformat(last) < timedelta(hours=SNAPSHOT_EVERY_HOURS):
+                return "skip"
+        except Exception:
+            pass
+
+    def run():
+        if not _db_lock.acquire(blocking=False):
+            return
+        tmp = None
+        try:
+            import psycopg2
+            fd, tmp = tempfile.mkstemp(suffix=".db")
+            os.close(fd)
+            os.unlink(tmp)
+            con = db.connect()
+            con.execute("VACUUM INTO ?", (tmp,))
+            con.close()
+            with open(tmp, "rb") as f:
+                blob = gzip.compress(f.read(), 6)
+            counts = {}
+            with db.cursor() as c:
+                for t in ("customers", "invoices", "invoice_details", "products"):
+                    counts[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            pg = _pg()
+            cur = pg.cursor()
+            _ensure_db(cur)
+            cur.execute("""INSERT INTO crm_db_snapshot(id, data, bytes, note, updated) VALUES (1, %s, %s, %s, now())
+                           ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, bytes=EXCLUDED.bytes,
+                           note=EXCLUDED.note, updated=now()""",
+                        (psycopg2.Binary(blob), len(blob), json.dumps(counts)))
+            pg.commit()
+            pg.close()
+            db.set_meta("db_snapshot_at", datetime.now().isoformat(timespec="seconds"))
+            db.set_meta("db_snapshot_bytes", str(len(blob)))
+            log.info("db snapshot saved: %.1f MB %s", len(blob) / 1e6, counts)
+        except Exception:
+            log.exception("db snapshot failed")
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+            _db_lock.release()
+
+    if background:
+        threading.Thread(target=run, daemon=True).start()
+        return "started"
+    run()
+    return "done"
+
+
+def restore_db():
+    """Khi khởi động: nếu chưa có dữ liệu KiotViet thì lấy bản sao gần nhất về."""
+    if not enabled():
+        return False
+    path = config.DB_PATH
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 100_000:
+            con = db.connect()
+            try:
+                n = con.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+                if n > 0:
+                    return False      # đã có dữ liệu, không cần khôi phục
+            except Exception:
+                pass
+            finally:
+                con.close()
+    except Exception:
+        pass
+    try:
+        pg = _pg()
+        cur = pg.cursor()
+        _ensure_db(cur)
+        cur.execute("SELECT data, bytes, note, updated FROM crm_db_snapshot WHERE id=1")
+        row = cur.fetchone()
+        pg.close()
+        if not row:
+            return False
+        blob = bytes(row[0])
+        raw = gzip.decompress(blob)
+        for suf in ("-wal", "-shm"):
+            if os.path.exists(path + suf):
+                os.unlink(path + suf)
+        with open(path, "wb") as f:
+            f.write(raw)
+        log.info("db restored from snapshot %s (%s, %.1f MB)", row[3], row[2], len(raw) / 1e6)
+        try:
+            db.set_meta("db_snapshot_at", row[3].replace(tzinfo=None).isoformat(timespec="seconds"))
+            db.set_meta("db_snapshot_bytes", str(row[1]))
+            db.set_meta("db_restored_at", datetime.now().isoformat(timespec="seconds"))
+        except Exception:
+            pass
+        return True
+    except Exception:
+        log.exception("db restore failed")
+        return False
