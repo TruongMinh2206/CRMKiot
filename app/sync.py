@@ -260,7 +260,12 @@ def sync_all(full=False):
                     db.set_meta(key, "1")
 
         state["progress"] = "Gán sale cho khách"
-        reapply_sales()
+        state["_in_sync"] = True
+        try:
+            reapply_sales()
+        finally:
+            state["_in_sync"] = False
+            state["reapply_pending"] = False
         from . import backup
         backup.restore_customer_manual()
 
@@ -380,6 +385,9 @@ def unknown_suffixes(limit=40):
 
 def reapply_sales():
     """Tính lại sale_name cho toàn bộ khách từ dữ liệu đã lưu (sau khi đồng bộ / đổi bí danh)."""
+    if state.get("running") and not state.get("_in_sync"):
+        state["reapply_pending"] = True   # đang đồng bộ -> để cuối kỳ đồng bộ tự làm
+        return
     ctx = build_context()
     rows = db.rows("SELECT id, raw FROM customers")
     with db.cursor() as con:

@@ -94,7 +94,7 @@ async def settings_save(request: Request, user=Depends(current_user)):
         db.set_meta("churn_days", str(int(b["churn_days"])))
         config.CHURN_DAYS = int(b["churn_days"])
     sync.reapply_sales()
-    return {"ok": True, "sale_source": sync.sale_source()}
+    return {"ok": True, "sale_source": sync.sale_source(), "pending": bool(sync.state.get("reapply_pending"))}
 
 
 # ---------------------------------------------------------------------------
@@ -242,9 +242,9 @@ async def aliases_save(request: Request, user=Depends(current_user)):
             con.execute("DELETE FROM sale_aliases WHERE alias=?", (alias,))
         else:
             con.execute("INSERT OR REPLACE INTO sale_aliases(alias,sale_name) VALUES(?,?)", (alias, (b.get("sale_name") or "").strip()))
-    # áp dụng ngay cho dữ liệu hiện có
+    # áp dụng ngay cho dữ liệu hiện có (nếu đang đồng bộ thì hoãn tới cuối kỳ)
     sync.reapply_sales()
-    return {"ok": True}
+    return {"ok": True, "pending": bool(sync.state.get("reapply_pending"))}
 
 
 # ---------------------------------------------------------------------------

@@ -94,6 +94,8 @@ def connect():
     con = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=20000")   # chờ tối đa 20s khi DB đang bận (lúc đồng bộ)
+    con.execute("PRAGMA synchronous=NORMAL")
     return con
 
 
