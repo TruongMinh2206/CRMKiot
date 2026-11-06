@@ -139,7 +139,7 @@ function render(){
     <label>Tên đăng nhập<input id="u" autocomplete="username"></label><label>Mật khẩu<input id="p" type="password" autocomplete="current-password"></label>
     <div class="err" id="lerr"></div><button class="btn primary" style="width:100%" id="lbtn">Đăng nhập</button></div></div>`;
     const go=async()=>{try{state.user=await api('/login',{method:'POST',body:{username:$('#u').value,password:$('#p').value}});boot()}catch(e){$('#lerr').textContent='Sai tài khoản hoặc mật khẩu'}};
-    $('#lbtn').onclick=go;$('#p').onkeydown=e=>e.key==='Enter'&&go();$('#u').focus();return}
+    $('#lbtn').onclick=go;$('#p').onkeydown=e=>{if(e.key==='Enter')go()};$('#u').onkeydown=e=>{if(e.key==='Enter')$('#p').focus()};$('#u').focus();return}
   const pages=PAGES.filter(p=>p[0]!=='settings'||state.user.role==='admin');
   root.innerHTML=`<div class="app"><nav><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
     ${pages.map(p=>`<a class="item ${state.page===p[0]?'active':''}" href="#${p[0]}"><span>${p[2]}</span>${p[1]}</a>`).join('')}
