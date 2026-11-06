@@ -412,9 +412,9 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     ym = ym or from_d[:7]
     sx = _seller_expr(basis)
     # người chịu trách nhiệm của phiếu trả: theo khách, hoặc theo người bán hoá đơn gốc
+    # hàng trả của khách sale phải quy theo đúng trục với doanh số khách sale
     rx = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')"
-          if basis == "invoice"
-          else "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')")
+          if basis in ("invoice", "accounting") else CUST_EXPR)
     cm = cat_map()
 
     bx = _seller_expr(basis, boss=True)
