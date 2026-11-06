@@ -226,7 +226,7 @@ async def users_save(request: Request, user=Depends(current_user)):
 def aliases_list(user=Depends(current_user)):
     rows = db.rows("SELECT alias, sale_name FROM sale_aliases ORDER BY alias")
     raw = db.rows("SELECT sale_name AS s, COUNT(*) n FROM customers WHERE sale_name IS NOT NULL AND sale_name<>'' GROUP BY 1 ORDER BY 2 DESC")
-    return {"aliases": rows, "detected": raw}
+    return {"aliases": rows, "detected": raw, "unknown": sync.unknown_suffixes()}
 
 
 @app.post("/api/aliases")

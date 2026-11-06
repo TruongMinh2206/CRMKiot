@@ -43,15 +43,12 @@ def _norm(s):
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
-def split_name(name):
-    """-> (alias, has_token). 'Vip Chị Xuân - My Lybyn' -> ('my', True); 'Thảo - NB' -> ('nb', False); không có '-' -> (None, False)."""
-    if not name or not re.search(r"[-–]", name):
+def _clean_seg(seg):
+    """'My Lybyn' -> ('my', True) ; 'TLL Linh (Signal)' -> ('tll linh', False)"""
+    seg = re.split(r"[(\[:]", seg)[0].strip()
+    if not seg or len(seg) > 30:
         return None, False
-    tail = re.split(r"[-–]", name)[-1].strip()
-    tail = re.split(r"[(\[:]", tail)[0].strip()  # bỏ phần ghi chú trong ngoặc
-    if not tail or len(tail) > 30:
-        return None, False
-    words = tail.split()
+    words = seg.split()
     has = any(_norm(w) in SALE_TOKENS for w in words)
     alias = _norm(" ".join(w for w in words if _norm(w) not in SALE_TOKENS)).strip(" .")
     if not alias or len(alias) < 2 or re.search(r"\d{3,}", alias):
@@ -59,16 +56,37 @@ def split_name(name):
     return alias, has
 
 
+def split_name(name):
+    """-> (alias, has_token). Lấy đoạn sau dấu '-' cuối cùng có ý nghĩa."""
+    if not name or not re.search(r"[-–]", name):
+        return None, False
+    segs = [x for x in re.split(r"[-–]", name)[1:] if x.strip()]
+    for seg in reversed(segs):
+        alias, has = _clean_seg(seg)
+        if alias:
+            return alias, has
+    return None, False
+
+
 def sale_from_name(name, known=None):
-    """Tên sale từ đuôi tên khách. Không có token Lybyn/LB thì chỉ nhận khi alias đã 'quen' (known) hoặc là sale online (Onl X)."""
-    alias, has = split_name(name)
-    if not alias:
+    """Tên sale từ đuôi tên khách. Quét các đoạn sau dấu '-' từ phải sang trái."""
+    if not name or not re.search(r"[-–]", name):
         return None
-    if has or (known and alias in known):
-        return alias
-    for pfx in ONLINE_PREFIX:
-        if alias.startswith(pfx):
+    known = known or set()
+    segs = [x for x in re.split(r"[-–]", name)[1:] if x.strip()]
+    for seg in reversed(segs):
+        alias, has = _clean_seg(seg)
+        if not alias:
+            continue
+        if has or alias in known:
             return alias
+        for pfx in ONLINE_PREFIX:
+            if alias.startswith(pfx):
+                return alias
+        # 'TLL Linh' -> nhận ra 'tll' nếu đó là bí danh đã biết
+        for w in alias.split():
+            if w in known:
+                return w
     return None
 
 
@@ -340,6 +358,24 @@ def fill_sale_from_invoices():
                   AND i.status = 1
                 GROUP BY sold_by_name ORDER BY COUNT(*) DESC, MAX(purchase_date) DESC LIMIT 1)
             WHERE (sale_name IS NULL OR sale_name = '')""")
+
+
+def unknown_suffixes(limit=40):
+    """Đuôi tên xuất hiện trên tên khách nhưng CRM chưa nhận ra là sale nào."""
+    ctx = build_context()
+    agg = {}
+    for r in db.rows("""SELECT c.id, c.name, COALESCE((SELECT SUM(i.total) FROM invoices i
+                        WHERE i.customer_id=c.id AND i.status=1 AND i.purchase_date >= date('now','-365 days')),0) rev
+                        FROM customers c WHERE c.is_active=1 AND (c.sale_name IS NULL OR c.sale_name='')
+                          AND (c.sale_manual IS NULL OR c.sale_manual='')"""):
+        alias, _ = split_name(r["name"])
+        if not alias:
+            continue
+        a = agg.setdefault(alias, {"alias": alias, "customers": 0, "revenue": 0.0, "sample": r["name"]})
+        a["customers"] += 1
+        a["revenue"] += r["rev"] or 0
+    out = sorted(agg.values(), key=lambda x: (-x["revenue"], -x["customers"]))
+    return out[:limit]
 
 
 def reapply_sales():
