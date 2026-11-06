@@ -9,7 +9,7 @@ from .kiot import KiotClient
 
 log = logging.getLogger("sync")
 _lock = threading.Lock()
-state = {"running": False, "progress": "", "last_error": None}
+state = {"running": False, "reapplying": False, "progress": "", "last_error": None}
 
 
 U = config.MONEY_UNIT
@@ -381,6 +381,29 @@ def unknown_suffixes(limit=40):
         a["revenue"] += r["rev"] or 0
     out = sorted(agg.values(), key=lambda x: (-x["revenue"], -x["customers"]))
     return out[:limit]
+
+
+def reapply_async():
+    """Chạy nền việc tính lại sale (mất vài chục giây với ~10.000 khách)."""
+    if state.get("running"):
+        state["reapply_pending"] = True
+        return "pending"
+    if state.get("reapplying"):
+        return "running"
+
+    def run():
+        state["reapplying"] = True
+        state["progress"] = "Đang tính lại sale phụ trách"
+        try:
+            reapply_sales()
+        except Exception:
+            log.exception("reapply failed")
+        finally:
+            state["reapplying"] = False
+            state["progress"] = ""
+
+    threading.Thread(target=run, daemon=True).start()
+    return "started"
 
 
 def reapply_sales():
