@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: kiotviet-crm
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: KIOT_RETAILER
+        sync: false
+      - key: KIOT_CLIENT_ID
+        sync: false
+      - key: KIOT_CLIENT_SECRET
+        sync: false
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MONEY_UNIT
+        value: "1000"
+      - key: SYNC_INTERVAL_MIN
+        value: "30"
+      - key: DB_PATH
+        value: data/crm.db

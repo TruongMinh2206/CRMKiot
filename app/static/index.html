@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRM KiotViet</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231f6f43'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>C</text></svg>">
+<script src="/static/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#f4f5f3;--surface:#ffffff;--surface-2:#f7f8f6;--border:#e3e5e0;--text:#151715;--text-2:#555a55;--muted:#8a8f89;
+  --brand:#1f6f43;--brand-2:#e8f3ec;--good:#008300;--warn:#c98500;--bad:#d1352b;--bad-2:#fdecea;--good-2:#e8f5e8;--warn-2:#fff4dd;
+  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948;
+  --radius:12px;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 14px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141514;--surface:#1d1f1d;--surface-2:#242724;--border:#2f332f;--text:#eeefec;--text-2:#b9bdb8;--muted:#7e837e;
+  --brand:#3ca96a;--brand-2:#1e3328;--good:#4cbd4c;--bad:#e66767;--bad-2:#3a2422;--good-2:#1f3320;--warn:#e0a53a;--warn-2:#3a3120;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}}
+:root[data-theme="dark"]{
+  --bg:#141514;--surface:#1d1f1d;--surface-2:#242724;--border:#2f332f;--text:#eeefec;--text-2:#b9bdb8;--muted:#7e837e;
+  --brand:#3ca96a;--brand-2:#1e3328;--good:#4cbd4c;--bad:#e66767;--bad-2:#3a2422;--good-2:#1f3320;--warn:#e0a53a;--warn-2:#3a3120;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--brand)}
+button,input,select{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+nav{background:var(--surface);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 8px 16px}
+.logo .mark{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800}
+nav a.item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--text-2);text-decoration:none;font-weight:500}
+nav a.item:hover{background:var(--surface-2)}
+nav a.item.active{background:var(--brand-2);color:var(--brand);font-weight:600}
+nav .spacer{flex:1}
+nav .user{font-size:12px;color:var(--muted);padding:8px 10px;border-top:1px solid var(--border)}
+main{padding:22px 28px 60px;min-width:0}
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px}
+.topbar h1{font-size:20px;margin:0;flex:1;min-width:200px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.filters input,.filters select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.btn{padding:7px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-weight:500}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.small{padding:4px 10px;font-size:12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:5px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+@media (max-width:1100px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.g2{grid-template-columns:1fr}}
+@media (max-width:760px){.app{grid-template-columns:1fr}nav{position:static;height:auto;flex-direction:row;flex-wrap:wrap}nav .spacer,nav .user{display:none}main{padding:16px}.g4{grid-template-columns:1fr 1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);min-width:0}
+.card h3{margin:0 0 10px;font-size:14px;font-weight:600;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.card h3 .x{margin-left:auto;font-weight:400;font-size:12px;color:var(--muted)}
+.tile .v{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:2px 0}
+.tile .d{font-size:12px;color:var(--muted)}
+.delta{font-size:12px;font-weight:600;padding:2px 7px;border-radius:999px}
+.delta.up{background:var(--good-2);color:var(--good)} .delta.down{background:var(--bad-2);color:var(--bad)} .delta.flat{background:var(--surface-2);color:var(--muted)}
+.chart{position:relative;height:260px} .chart.tall{height:340px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;white-space:nowrap}
+th{font-weight:600;color:var(--text-2);font-size:12px;background:var(--surface-2);position:sticky;top:0;cursor:pointer;user-select:none}
+th.r,td.r{text-align:right;font-variant-numeric:tabular-nums}
+tr:hover td{background:var(--surface-2)}
+td.name{white-space:normal;min-width:160px}
+.tablewrap{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:10px}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--surface-2);color:var(--text-2)}
+.tag.good{background:var(--good-2);color:var(--good)} .tag.bad{background:var(--bad-2);color:var(--bad)} .tag.warn{background:var(--warn-2);color:var(--warn)} .tag.info{background:var(--brand-2);color:var(--brand)}
+.muted{color:var(--muted)} .small{font-size:12px}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.login{min-height:100vh;display:grid;place-items:center}
+.login .card{width:360px}
+.login input{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);margin:6px 0 12px}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;z-index:50}
+.modal.open{display:flex}
+.modal .card{width:min(960px,100%)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px} .kv b{color:var(--text-2);font-weight:500}
+.bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}.bar i{display:block;height:100%;background:var(--s1);border-radius:4px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;transition:.3s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+.sync{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block}.dot.busy{background:var(--warn);animation:p 1s infinite}
+@keyframes p{50%{opacity:.3}}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin:4px 0 8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.funnel{display:flex;gap:8px;align-items:stretch}
+.funnel div{flex:1;padding:12px;border-radius:10px;background:var(--surface-2);text-align:center}
+.funnel b{display:block;font-size:22px}
+textarea{width:100%;min-height:60px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-2)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal"><div class="card" id="modalBody"></div></div>
+
+<script>
+// ============================================================================
+// Helpers
+// ============================================================================
+const $=s=>document.querySelector(s);
+const fmt=n=>n==null?'–':Math.round(n).toLocaleString('vi-VN');
+const fmtK=n=>{if(n==null)return '–';const a=Math.abs(n);if(a>=1e9)return (n/1e9).toFixed(2)+' tỷ';if(a>=1e6)return (n/1e6).toFixed(1)+' tr';if(a>=1e3)return (n/1e3).toFixed(0)+' k';return fmt(n)};
+const pct=n=>n==null?'–':(n>0?'+':'')+n.toFixed(1)+'%';
+const d10=s=>s?s.slice(0,10):'';
+const dmy=s=>{if(!s)return '';const [y,m,d]=s.slice(0,10).split('-');return `${d}/${m}/${y}`};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const delta=(v)=>v==null?'<span class="delta flat">–</span>':`<span class="delta ${v>0?'up':v<0?'down':'flat'}">${pct(v)}</span>`;
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const S=()=>['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'].map(css);
+async function api(path,opt={}){
+  const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});
+  if(r.status===401){state.user=null;render();throw new Error('401')}
+  if(!r.ok){let m='Lỗi';try{m=(await r.json()).detail||m}catch{}toast(m);throw new Error(m)}
+  return r.json();
+}
+const today=new Date();const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const state={user:null,page:'overview',from:iso(new Date(today.getFullYear(),today.getMonth(),1)),to:iso(today),sale:'',sales:[],charts:{}};
+Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
+Chart.defaults.color=css('--text-2');Chart.defaults.borderColor=css('--border');
+function chart(id,cfg){if(cfg.options&&cfg.options.indexAxis==='y'){cfg.options.scales.y.ticks=Object.assign({callback:function(v){const l=this.getLabelForValue(v);return l.length>28?l.slice(0,27)+'…':l}},cfg.options.scales.y.ticks||{})}if(state.charts[id])state.charts[id].destroy();const el=document.getElementById(id);if(!el)return;
+  cfg.options=cfg.options||{};cfg.options.maintainAspectRatio=false;cfg.options.responsive=true;
+  cfg.options.plugins=Object.assign({legend:{display:false}},cfg.options.plugins||{});
+  cfg.options.interaction=cfg.options.interaction||{mode:'index',intersect:false};
+  state.charts[id]=new Chart(el,cfg)}
+const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{display:false}},x:{beginAtZero:true,grid:{color:css('--border')},ticks:{callback:v=>money?fmtK(v):v}}}}:{scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:css('--border')},ticks:{callback:v=>money?fmtK(v):v}}}};
+
+// ============================================================================
+// Shell
+// ============================================================================
+const PAGES=[['overview','Tổng quan','◫'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
+function render(){
+  const root=$('#root');
+  if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
+    <label>Tên đăng nhập<input id="u" autocomplete="username"></label><label>Mật khẩu<input id="p" type="password" autocomplete="current-password"></label>
+    <div class="err" id="lerr"></div><button class="btn primary" style="width:100%" id="lbtn">Đăng nhập</button></div></div>`;
+    const go=async()=>{try{state.user=await api('/login',{method:'POST',body:{username:$('#u').value,password:$('#p').value}});boot()}catch(e){$('#lerr').textContent='Sai tài khoản hoặc mật khẩu'}};
+    $('#lbtn').onclick=go;$('#p').onkeydown=e=>e.key==='Enter'&&go();$('#u').focus();return}
+  const pages=PAGES.filter(p=>p[0]!=='settings'||state.user.role==='admin');
+  root.innerHTML=`<div class="app"><nav><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
+    ${pages.map(p=>`<a class="item ${state.page===p[0]?'active':''}" href="#${p[0]}"><span>${p[2]}</span>${p[1]}</a>`).join('')}
+    <div class="spacer"></div><div class="sync" id="syncbar"></div>
+    <div class="user">${esc(state.user.display_name)} · ${state.user.role==='admin'?'Quản trị':state.user.role==='accountant'?'Kế toán':'Sale'}<br><a href="#" id="logout">Đăng xuất</a></div></nav>
+    <main id="main"></main></div>`;
+  $('#logout').onclick=async e=>{e.preventDefault();await api('/logout',{method:'POST'});state.user=null;render()};
+  loadPage();refreshSync();
+}
+function topbar(title,{dates=true,sale=true,extra='',exportKey=null}={}){
+  const saleSel=sale&&state.user.role!=='sale'?`<select id="fSale"><option value="">Tất cả sale</option>${state.sales.map(s=>`<option ${s===state.sale?'selected':''}>${esc(s)}</option>`).join('')}</select>`:'';
+  const dateIn=dates?`<div class="chips" id="quick">${['Tháng này','Tháng trước','7 ngày','30 ngày','Quý này','Năm nay'].map(q=>`<span class="chip">${q}</span>`).join('')}</div>
+    <input type="date" id="fFrom" value="${state.from}"> <span class="muted">→</span> <input type="date" id="fTo" value="${state.to}">`:'';
+  return `<div class="topbar"><h1>${title}</h1><div class="filters">${dateIn}${saleSel}${extra}${exportKey?`<button class="btn" id="btnExport">⬇ Excel</button>`:''}</div></div>`;
+}
+function bindTopbar(exportKey){
+  const re=()=>{const f=$('#fFrom'),t=$('#fTo');if(f)state.from=f.value;if(t)state.to=t.value;const s=$('#fSale');if(s)state.sale=s.value;loadPage()};
+  ['#fFrom','#fTo','#fSale'].forEach(x=>{const el=$(x);if(el)el.onchange=re});
+  document.querySelectorAll('#quick .chip').forEach(c=>c.onclick=()=>{const t=new Date();let f,e=t;
+    switch(c.textContent){case 'Tháng này':f=new Date(t.getFullYear(),t.getMonth(),1);break;case 'Tháng trước':f=new Date(t.getFullYear(),t.getMonth()-1,1);e=new Date(t.getFullYear(),t.getMonth(),0);break;
+      case '7 ngày':f=new Date(t-6*864e5);break;case '30 ngày':f=new Date(t-29*864e5);break;case 'Quý này':f=new Date(t.getFullYear(),Math.floor(t.getMonth()/3)*3,1);break;case 'Năm nay':f=new Date(t.getFullYear(),0,1)}
+    state.from=iso(f);state.to=iso(e);loadPage()});
+  if(exportKey&&$('#btnExport'))$('#btnExport').onclick=()=>{window.location=`/api/export/${exportKey}?${qs()}`};
+}
+const qs=(o={})=>new URLSearchParams(Object.assign({from:state.from,to:state.to,sale:state.sale},o)).toString();
+async function refreshSync(){try{const s=await api('/status');const el=$('#syncbar');if(!el)return;
+  el.innerHTML=`<span class="dot ${s.sync.running?'busy':''}"></span>${s.sync.running?'Đang đồng bộ: '+esc(s.sync.progress):'Đồng bộ: '+(s.last_sync?dmy(s.last_sync)+' '+s.last_sync.slice(11,16):'chưa')}`;
+  if(s.sync.running)setTimeout(refreshSync,3000)}catch{}}
+window.addEventListener('hashchange',()=>{state.page=location.hash.slice(1)||'overview';render()});
+async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sales=await api('/sales')}catch{}render()}
+
+// ============================================================================
+// Pages
+// ============================================================================
+async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+
+async function overview(){
+  const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
+  m.innerHTML=topbar('Tổng quan')+`<div class="grid g4">
+    <div class="card tile"><h3>Doanh số</h3><div class="v">${fmtK(s.revenue)}</div><div class="d">${delta(s.revenue_growth)} so kỳ trước (${fmtK(s.revenue_prev)})</div></div>
+    <div class="card tile"><h3>Hoá đơn</h3><div class="v">${fmt(s.invoices)}</div><div class="d">${delta(s.invoices_prev?(s.invoices-s.invoices_prev)/s.invoices_prev*100:null)} · TB ${fmtK(s.invoices?s.revenue/s.invoices:0)}/HĐ</div></div>
+    <div class="card tile"><h3>Khách có mua</h3><div class="v">${fmt(s.customers)}</div><div class="d">${delta(s.customers_prev?(s.customers-s.customers_prev)/s.customers_prev*100:null)} · tổng ${fmt(s.total_customers)} KH</div></div>
+    <div class="card tile"><h3>Khách mới</h3><div class="v">${fmt(s.new_customers)}</div><div class="d">${delta(s.new_customers_prev?(s.new_customers-s.new_customers_prev)/s.new_customers_prev*100:null)} so kỳ trước (${fmt(s.new_customers_prev)})</div></div>
+  </div><div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Doanh số theo ngày</h3><div class="chart"><canvas id="cDaily"></canvas></div></div>
+    <div class="card"><h3>Sinh nhật 7 ngày tới <span class="x"><a href="#birthdays">xem tất cả</a></span></h3>
+      ${d.birthdays.length?`<div class="tablewrap" style="max-height:300px"><table><tr><th>Ngày</th><th>Khách</th><th>SĐT</th><th>Sale</th></tr>${d.birthdays.map(b=>`<tr><td>${b.birthday_ddmm} ${b.days_until===0?'<span class="tag good">hôm nay</span>':b.days_until===1?'<span class="tag warn">mai</span>':''}</td><td class="name"><a href="#" onclick="openCustomer(${b.id});return false">${esc(b.name)}</a></td><td>${esc((b.contact_number||'').slice(0,12))}</td><td>${esc(b.sale)}</td></tr>`).join('')}</table></div>`:'<div class="empty">Không có sinh nhật trong 7 ngày tới</div>'}</div>
+  </div><div class="card" style="margin-top:14px"><h3>Top 12 sale theo doanh số <span class="x"><a href="#sales">chi tiết</a></span></h3><div class="chart tall"><canvas id="cSale"></canvas></div></div>`;
+  bindTopbar();
+  chart('cDaily',{type:'bar',data:{labels:s.daily.map(x=>x.d.slice(8)+'/'+x.d.slice(5,7)),datasets:[{data:s.daily.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},
+    options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+s.daily[c.dataIndex].n+' HĐ'}}}})});
+  const sr=(await api('/report/sales?'+qs())).filter(r=>r.revenue>0).slice(0,12);
+  chart('cSale',{type:'bar',data:{labels:sr.map(r=>r.sale),datasets:[{label:'Doanh số',data:sr.map(r=>r.revenue),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'left'}]},
+    options:Object.assign(gridOpt(true,true),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+sr[c.dataIndex].buying_customers+' KH có mua'}}}})});
+}
+
+async function sales(){
+  const rows=await api('/report/sales?'+qs());const m=$('#main');
+  const tot=k=>rows.reduce((a,r)=>a+(r[k]||0),0);
+  m.innerHTML=topbar('Khách hàng theo sale',{sale:false,exportKey:'sales'})+`<div class="grid g4">
+    <div class="card tile"><h3>Tổng khách</h3><div class="v">${fmt(tot('total_customers'))}</div><div class="d">${fmt(tot('new_customers'))} KH mới trong kỳ ${delta(tot('new_customers_prev')?(tot('new_customers')-tot('new_customers_prev'))/tot('new_customers_prev')*100:null)}</div></div>
+    <div class="card tile"><h3>KH có mua</h3><div class="v">${fmt(tot('buying_customers'))}</div><div class="d">${delta(tot('buying_customers_prev')?(tot('buying_customers')-tot('buying_customers_prev'))/tot('buying_customers_prev')*100:null)} so kỳ trước (${fmt(tot('buying_customers_prev'))})</div></div>
+    <div class="card tile"><h3>KH mất so kỳ trước</h3><div class="v" style="color:var(--bad)">${fmt(tot('lost_vs_prev'))}</div><div class="d">có mua kỳ trước, kỳ này không</div></div>
+    <div class="card tile"><h3>Doanh số</h3><div class="v">${fmtK(tot('revenue'))}</div><div class="d">${delta(tot('revenue_prev')?(tot('revenue')-tot('revenue_prev'))/tot('revenue_prev')*100:null)} so kỳ trước</div></div></div>
+  <div class="grid g2" style="margin-top:14px"><div class="card"><h3>Khách có mua: kỳ này vs kỳ trước <span class="x">top 12</span></h3><div class="legend"><span><i style="background:${css('--s1')}"></i>Kỳ này</span><span><i style="background:${css('--border')}"></i>Kỳ trước</span></div><div class="chart"><canvas id="c1"></canvas></div></div>
+    <div class="card"><h3>Doanh số theo sale <span class="x">top 12</span></h3><div class="legend"><span><i style="background:${css('--s1')}"></i>Kỳ này</span><span><i style="background:${css('--border')}"></i>Kỳ trước</span></div><div class="chart"><canvas id="c2"></canvas></div></div></div>
+  <div class="card" style="margin-top:14px"><h3>Bảng chi tiết <span class="x">KH ngừng mua = không mua quá ${state.churn||90} ngày tính đến đầu kỳ</span></h3><div class="tablewrap"><table id="t">
+    <thead><tr><th>Sale</th><th class="r">Tổng KH</th><th class="r">KH mới</th><th class="r">Mua lần đầu</th><th class="r">KH có mua</th><th class="r">Kỳ trước</th><th class="r">Tăng/giảm</th><th class="r">KH mới/quay lại</th><th class="r">KH mất</th><th class="r">Ngừng mua</th><th class="r">Doanh số</th><th class="r">Kỳ trước</th><th class="r">Tăng/giảm</th><th class="r">Số HĐ</th><th class="r">TB/HĐ</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td><b>${esc(r.sale)}</b></td><td class="r">${fmt(r.total_customers)}</td><td class="r">${fmt(r.new_customers)}</td><td class="r">${fmt(r.first_time_buyers)}</td><td class="r"><b>${fmt(r.buying_customers)}</b></td><td class="r muted">${fmt(r.buying_customers_prev)}</td><td class="r">${delta(r.customer_growth)}</td><td class="r" style="color:var(--good)">+${fmt(r.gained_vs_prev)}</td><td class="r" style="color:var(--bad)">−${fmt(r.lost_vs_prev)}</td><td class="r">${fmt(r.churned)}</td><td class="r"><b>${fmt(r.revenue)}</b></td><td class="r muted">${fmt(r.revenue_prev)}</td><td class="r">${delta(r.revenue_growth)}</td><td class="r">${fmt(r.invoices)}</td><td class="r">${fmt(r.avg_invoice)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  bindTopbar('sales');sortable('#t');
+  const top=rows.filter(r=>r.buying_customers+r.buying_customers_prev>0).slice(0,12);const lab=top.map(r=>r.sale);
+  chart('c1',{type:'bar',data:{labels:lab,datasets:[{label:'Kỳ này',data:top.map(r=>r.buying_customers),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'},{label:'Kỳ trước',data:top.map(r=>r.buying_customers_prev),backgroundColor:css('--border'),borderRadius:4,borderSkipped:'bottom'}]},options:gridOpt(false)});
+  chart('c2',{type:'bar',data:{labels:lab,datasets:[{label:'Kỳ này',data:top.map(r=>r.revenue),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'},{label:'Kỳ trước',data:top.map(r=>r.revenue_prev),backgroundColor:css('--border'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+fmt(c.raw)+' đ'}}}})});
+}
+
+async function trend(){
+  const months=state.months||12;const rows=await api('/report/trend?months='+months+'&sale='+encodeURIComponent(state.sale));const m=$('#main');
+  m.innerHTML=topbar('Biến động khách hàng theo tháng',{dates:false,exportKey:'trend',extra:`<select id="fMonths">${[6,12,18,24].map(x=>`<option value="${x}" ${x==months?'selected':''}>${x} tháng</option>`).join('')}</select>`})+
+  `<div class="card"><h3>Khách mới · khách quay lại · khách ngừng mua</h3><div class="legend"><span><i style="background:${css('--s3')}"></i>KH mới (tạo trong tháng)</span><span><i style="background:${css('--s1')}"></i>KH quay lại (đã từng mua)</span><span><i style="background:${css('--s8')}"></i>KH ngừng mua (lần mua cuối cách ${state.churn||90} ngày, tính vào tháng hết hạn)</span></div><div class="chart tall"><canvas id="c1"></canvas></div></div>
+  <div class="grid g2" style="margin-top:14px"><div class="card"><h3>Khách có mua trong tháng</h3><div class="chart"><canvas id="c2"></canvas></div></div><div class="card"><h3>Doanh số theo tháng</h3><div class="chart"><canvas id="c3"></canvas></div></div></div>
+  <div class="card" style="margin-top:14px"><div class="tablewrap"><table id="t"><thead><tr><th>Tháng</th><th class="r">KH mới</th><th class="r">Mua lần đầu</th><th class="r">KH có mua</th><th class="r">KH quay lại</th><th class="r">KH ngừng mua</th><th class="r">Tăng/giảm ròng</th><th class="r">Tổng KH đầu tháng</th><th class="r">Doanh số</th></tr></thead>
+  <tbody>${rows.map(r=>`<tr><td><b>${r.ym.slice(5)}/${r.ym.slice(0,4)}</b></td><td class="r" style="color:var(--good)">+${fmt(r.new_customers)}</td><td class="r">${fmt(r.first_buyers)}</td><td class="r"><b>${fmt(r.active_customers)}</b></td><td class="r">${fmt(r.returning_customers)}</td><td class="r" style="color:var(--bad)">−${fmt(r.lost_customers)}${r.churn_pending?' <span class="muted small">(đang tính)</span>':''}</td><td class="r">${r.net_change>=0?'+':''}${fmt(r.net_change)}</td><td class="r muted">${fmt(r.cumulative_customers)}</td><td class="r">${fmt(r.revenue)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  bindTopbar('trend');$('#fMonths').onchange=e=>{state.months=+e.target.value;loadPage()};
+  const lab=rows.map(r=>r.ym.slice(5)+'/'+r.ym.slice(2,4));
+  chart('c1',{type:'bar',data:{labels:lab,datasets:[{label:'KH mới',data:rows.map(r=>r.new_customers),backgroundColor:css('--s3'),borderRadius:4,borderSkipped:'bottom'},{label:'KH quay lại',data:rows.map(r=>r.returning_customers),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'},{label:'KH ngừng mua',data:rows.map(r=>-r.lost_customers),backgroundColor:css('--s8'),borderRadius:4,borderSkipped:'top'}]},
+    options:{scales:{x:{grid:{display:false}},y:{grid:{color:css('--border')},ticks:{callback:v=>Math.abs(v)}}},plugins:{tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+Math.abs(c.raw)}}}}});
+  chart('c2',{type:'line',data:{labels:lab,datasets:[{label:'KH có mua',data:rows.map(r=>r.active_customers),borderColor:css('--s1'),backgroundColor:css('--s1'),borderWidth:2,pointRadius:4,tension:.3}]},options:gridOpt(false)});
+  chart('c3',{type:'bar',data:{labels:lab,datasets:[{label:'Doanh số',data:rows.map(r=>r.revenue),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ'}}}})});
+}
+
+async function customers(){
+  const rows=await api('/report/customers?'+qs());const m=$('#main');
+  const seg={};rows.forEach(r=>seg[r.segment]=(seg[r.segment]||0)+1);
+  const segTag=s=>({'VIP/Trung thành':'good','Giảm mua':'warn','Ngừng mua':'bad','Mua lần đầu':'info'}[s]||'');
+  m.innerHTML=topbar('Doanh số khách hàng',{exportKey:'customers',extra:`<input id="fQ" placeholder="Tìm tên / mã / SĐT" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"> <select id="fSeg"><option value="">Tất cả nhóm</option>${Object.keys(seg).map(s=>`<option>${s} (${seg[s]})</option>`).join('')}</select>`})+
+  `<div class="grid g4">${[['VIP/Trung thành','≥5 HĐ, mua trong 30 ngày'],['Giảm mua','DS giảm >30% so kỳ trước'],['Ngừng mua','không mua quá '+(state.churn||90)+' ngày (có mua trong 1 năm)'],['Mua lần đầu','mới có 1 hoá đơn']].map(([s,d])=>`<div class="card tile"><h3>${s}</h3><div class="v">${fmt(seg[s]||0)}</div><div class="d">${d}</div></div>`).join('')}</div>
+  <div class="card" style="margin-top:14px"><h3>Top 15 khách theo doanh số kỳ này</h3><div class="chart tall"><canvas id="c1"></canvas></div></div>
+  <div class="card" style="margin-top:14px"><div class="tablewrap"><table id="t"><thead><tr><th>Mã</th><th>Khách hàng</th><th>SĐT</th><th>Sale</th><th>Nhóm</th><th class="r">Doanh số</th><th class="r">Số HĐ</th><th class="r">Kỳ trước</th><th class="r">Tăng/giảm</th><th class="r">DS tích luỹ</th><th>Mua gần nhất</th><th class="r">Ngày chưa mua</th><th class="r">Công nợ</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+  bindTopbar('customers');
+  const draw=()=>{const q=($('#fQ').value||'').toLowerCase();const sg=($('#fSeg').value||'').replace(/ \(\d+\)$/,'');
+    const f=rows.filter(r=>(!q||(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)||(r.contact_number||'').includes(q))&&(!sg||r.segment===sg));
+    $('#tb').innerHTML=f.slice(0,600).map(r=>`<tr><td class="muted">${esc(r.code)}</td><td class="name"><a href="#" onclick="openCustomer(${r.id});return false"><b>${esc(r.name)}</b></a></td><td>${esc(r.contact_number||'')}</td><td>${esc(r.sale)}</td><td><span class="tag ${segTag(r.segment)}">${r.segment}</span></td><td class="r"><b>${fmt(r.revenue)}</b></td><td class="r">${r.invoices}</td><td class="r muted">${fmt(r.revenue_prev)}</td><td class="r">${delta(r.growth)}</td><td class="r">${fmt(r.lifetime_revenue)}</td><td>${dmy(r.last_purchase)}</td><td class="r">${r.days_since_last??'–'}</td><td class="r ${r.debt>0?'':'muted'}">${fmt(r.debt)}</td></tr>`).join('')||'<tr><td colspan="13" class="empty">Không có dữ liệu</td></tr>'};
+  $('#fQ').oninput=draw;$('#fSeg').onchange=draw;draw();sortable('#t',draw);
+  const top=rows.slice(0,15);
+  chart('c1',{type:'bar',data:{labels:top.map(r=>r.name),datasets:[{data:top.map(r=>r.revenue),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(true,true),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+top[c.dataIndex].invoices+' HĐ · '+top[c.dataIndex].sale}}}})});
+}
+
+async function products(){
+  const rows=await api('/report/products?'+qs());const m=$('#main');
+  const cnt={};rows.forEach(r=>cnt[r.speed]=(cnt[r.speed]||0)+1);
+  const tag=s=>({'Nhanh (sắp hết)':'bad','Tăng tốc':'good','Mới bán':'info','Chậm':'warn','Tồn không bán':'bad','Giảm tốc':'warn'}[s]||'');
+  const stockSlow=rows.filter(r=>['Chậm','Tồn không bán'].includes(r.speed)).reduce((a,r)=>a+r.stock_value,0);
+  m.innerHTML=topbar('Hàng bán nhanh / chậm',{exportKey:'products',extra:`<input id="fQ" placeholder="Tìm hàng" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"> <select id="fSp"><option value="">Tất cả</option>${Object.keys(cnt).map(s=>`<option>${s} (${cnt[s]})</option>`).join('')}</select>`})+
+  `<div class="grid g4"><div class="card tile"><h3>Nhanh – sắp hết</h3><div class="v" style="color:var(--bad)">${cnt['Nhanh (sắp hết)']||0}</div><div class="d">tồn &lt; 14 ngày bán, cần nhập</div></div>
+   <div class="card tile"><h3>Tăng tốc</h3><div class="v" style="color:var(--good)">${cnt['Tăng tốc']||0}</div><div class="d">SL bán tăng ≥30% so kỳ trước</div></div>
+   <div class="card tile"><h3>Chậm / tồn không bán</h3><div class="v" style="color:var(--warn)">${(cnt['Chậm']||0)+(cnt['Tồn không bán']||0)}</div><div class="d">tồn &gt; 90 ngày bán hoặc không bán</div></div>
+   <div class="card tile"><h3>Vốn đọng hàng chậm</h3><div class="v">${fmtK(stockSlow)}</div><div class="d">giá trị tồn của hàng chậm</div></div></div>
+  <div class="grid g2" style="margin-top:14px"><div class="card"><h3>Top 12 bán chạy (doanh số kỳ này)</h3><div class="chart tall"><canvas id="c1"></canvas></div></div>
+   <div class="card"><h3>Top 12 vốn đọng (hàng chậm / không bán)</h3><div class="chart tall"><canvas id="c2"></canvas></div></div></div>
+  <div class="card" style="margin-top:14px"><div class="tablewrap"><table id="t"><thead><tr><th>Mã</th><th>Hàng hoá</th><th>Nhóm</th><th>Tốc độ</th><th class="r">SL bán</th><th class="r">Kỳ trước</th><th class="r">Tăng/giảm</th><th class="r">Doanh số</th><th class="r">SL/ngày</th><th class="r">Tồn</th><th class="r">Ngày tồn còn</th><th class="r">Giá trị tồn</th><th>Bán gần nhất</th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
+  bindTopbar('products');
+  const draw=()=>{const q=($('#fQ').value||'').toLowerCase();const sp=($('#fSp').value||'').replace(/ \(\d+\)$/,'');
+    const f=rows.filter(r=>(!q||(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q))&&(!sp||r.speed===sp));
+    $('#tb').innerHTML=f.slice(0,800).map(r=>`<tr><td class="muted">${esc(r.code)}</td><td class="name"><b>${esc(r.name)}</b></td><td>${esc(r.category_name||'')}</td><td><span class="tag ${tag(r.speed)}">${r.speed}</span></td><td class="r"><b>${fmt(r.qty)}</b></td><td class="r muted">${fmt(r.qty_prev)}</td><td class="r">${delta(r.growth)}</td><td class="r">${fmt(r.revenue)}</td><td class="r">${r.qty_per_day}</td><td class="r">${fmt(r.on_hand)}</td><td class="r">${r.days_of_stock??'–'}</td><td class="r">${fmt(r.stock_value)}</td><td>${dmy(r.last_sold)}${r.days_since_sold!=null?` <span class="muted small">(${r.days_since_sold} ng)</span>`:''}</td></tr>`).join('')||'<tr><td colspan="13" class="empty">Không có dữ liệu</td></tr>'};
+  $('#fQ').oninput=draw;$('#fSp').onchange=draw;draw();sortable('#t',draw);
+  const top=rows.slice(0,12);
+  chart('c1',{type:'bar',data:{labels:top.map(r=>r.name),datasets:[{data:top.map(r=>r.revenue),backgroundColor:css('--s3'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(true,true),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · SL '+fmt(top[c.dataIndex].qty)}}}})});
+  const slow=rows.filter(r=>['Chậm','Tồn không bán'].includes(r.speed)).sort((a,b)=>b.stock_value-a.stock_value).slice(0,12);
+  chart('c2',{type:'bar',data:{labels:slow.map(r=>r.name),datasets:[{data:slow.map(r=>r.stock_value),backgroundColor:css('--s4'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(true,true),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · tồn '+fmt(slow[c.dataIndex].on_hand)}}}})});
+}
+
+async function journey(){
+  const j=await api('/report/journey?'+qs());const m=$('#main');const F=j.inv_funnel;const O=j.funnel;
+  const DOW=['CN','T2','T3','T4','T5','T6','T7'];
+  const hasOrders=O.total>0;
+  m.innerHTML=topbar('Hành trình đơn bán',{exportKey:'journey'})+`<div class="card"><h3>Hành trình hoá đơn (kỳ này)</h3><div class="funnel">
+    <div><b>${fmt(F.total)}</b>Hoá đơn tạo</div><div><b style="color:var(--good)">${fmt(F.done)}</b>Hoàn thành ${F.total?'('+Math.round(F.done/F.total*100)+'%)':''}</div><div><b style="color:var(--bad)">${fmt(F.cancelled)}</b>Đã hủy ${F.total?'('+(F.cancelled/F.total*100).toFixed(1)+'%)':''}</div>
+    <div><b>${fmt(F.paid_full)}</b>Đã thu đủ trên KiotViet</div><div><b style="color:var(--warn)">${fmtK(F.unpaid_amount)}</b>Chưa ghi nhận thu (${fmt(F.unpaid)} HĐ)</div></div>
+    <p class="small muted" style="margin:10px 0 0">Nếu cửa hàng thu tiền ngoài KiotViet thì cột "chưa ghi nhận thu" chỉ phản ánh việc chưa nhập thanh toán, không phải công nợ thật. Công nợ chính xác xem ở trang Doanh số KH (cột Công nợ lấy từ KiotViet).</p></div>
+  <div class="grid g3" style="margin-top:14px">
+    <div class="card"><h3>Trạng thái hoá đơn</h3><div class="chart"><canvas id="c2"></canvas></div></div>
+    <div class="card"><h3>Hoá đơn theo giờ trong ngày</h3><div class="chart"><canvas id="c4"></canvas></div></div>
+    <div class="card"><h3>Doanh số theo thứ</h3><div class="chart"><canvas id="c5"></canvas></div></div></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Theo nhân viên bán (trên hoá đơn)</h3><div class="tablewrap" style="max-height:360px"><table id="ts"><thead><tr><th>Nhân viên</th><th class="r">HĐ</th><th class="r">Hoàn thành</th><th class="r">Hủy</th><th class="r">Tỷ lệ hủy</th><th class="r">KH</th><th class="r">Doanh số</th><th class="r">TB/HĐ</th></tr></thead><tbody>${j.inv_by_sale.map(r=>`<tr><td><b>${esc(r.sale)}</b></td><td class="r">${r.n}</td><td class="r" style="color:var(--good)">${r.done}</td><td class="r" style="color:var(--bad)">${r.cancelled}</td><td class="r">${r.n?(r.cancelled/r.n*100).toFixed(1)+'%':'–'}</td><td class="r">${r.customers}</td><td class="r">${fmt(r.total)}</td><td class="r">${fmt(r.done?r.total/r.done:0)}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">Chưa có hoá đơn trong kỳ</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h3>Theo kho / chi nhánh</h3><div class="chart"><canvas id="c6"></canvas></div><table style="margin-top:8px"><thead><tr><th>Kho</th><th class="r">HĐ</th><th class="r">Doanh số</th></tr></thead><tbody>${j.by_branch.map(r=>`<tr><td>${esc(r.branch)}</td><td class="r">${r.n}</td><td class="r">${fmt(r.total)}</td></tr>`).join('')}</tbody></table></div></div>
+  ${hasOrders?`<div class="card" style="margin-top:14px"><h3>Đơn đặt hàng (kỳ này)</h3><div class="funnel"><div><b>${fmt(O.total)}</b>Đơn tạo</div><div><b style="color:var(--warn)">${fmt(O.pending)}</b>Đang xử lý</div><div><b style="color:var(--good)">${fmt(O.done)}</b>Hoàn thành ${O.completion_rate!=null?'('+O.completion_rate+'%)':''}</div><div><b style="color:var(--bad)">${fmt(O.cancelled)}</b>Đã hủy</div><div><b>${j.lead_hours!=null?j.lead_hours+' giờ':'–'}</b>TB từ đặt → xuất HĐ</div></div></div>`:''}
+  <div class="card" style="margin-top:14px"><h3>Đơn đặt hàng đang kẹt (chưa hoàn thành, mọi thời điểm) <span class="x">${j.stuck.length} đơn</span></h3><div class="tablewrap" style="max-height:360px"><table id="t"><thead><tr><th>Mã đơn</th><th>Ngày</th><th class="r">Số ngày</th><th>Khách</th><th>Sale</th><th>Trạng thái</th><th>Giao hàng</th><th class="r">Giá trị</th></tr></thead><tbody>${j.stuck.map(r=>`<tr><td>${esc(r.code)}</td><td>${dmy(r.purchase_date)}</td><td class="r"><span class="tag ${r.age_days>7?'bad':r.age_days>3?'warn':''}">${r.age_days}</span></td><td class="name">${esc(r.customer_name||'')}</td><td>${esc(r.sold_by_name||'')}</td><td>${esc(r.status)}</td><td>${esc(r.delivery_status_value||'')}</td><td class="r">${fmt(r.total)}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">Không có đơn kẹt 🎉</td></tr>'}</tbody></table></div><p class="small muted">Phiếu tạm cũ chưa xử lý nên hủy hoặc hoàn tất trên KiotViet để không làm nhiễu báo cáo.</p></div>`;
+  bindTopbar('journey');sortable('#t');sortable('#ts');
+  const pie=(id,rows)=>chart(id,{type:'doughnut',data:{labels:rows.map(r=>r.label),datasets:[{data:rows.map(r=>r.n),backgroundColor:[css('--s3'),css('--s8'),css('--s4'),css('--s1')],borderWidth:2,borderColor:css('--surface')}]},options:{interaction:{mode:'nearest'},plugins:{legend:{display:true,position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.raw+' · '+fmt(rows[c.dataIndex].total)+' đ'}}}}});
+  pie('c2',j.invoices);
+  const hours=Array.from({length:24},(_,h)=>(j.by_hour.find(x=>x.h===h)||{n:0}).n);
+  chart('c4',{type:'bar',data:{labels:hours.map((_,h)=>h+'h'),datasets:[{data:hours,backgroundColor:css('--s1'),borderRadius:3,borderSkipped:'bottom'}]},options:gridOpt(false)});
+  const dow=[1,2,3,4,5,6,0].map(d=>j.by_dow.find(x=>x.d===d)||{d,n:0,total:0});
+  chart('c5',{type:'bar',data:{labels:dow.map(x=>DOW[x.d]),datasets:[{data:dow.map(x=>x.total),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+dow[c.dataIndex].n+' HĐ'}}}})});
+  chart('c6',{type:'bar',data:{labels:j.by_branch.map(r=>r.branch),datasets:[{data:j.by_branch.map(r=>r.total),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'left'}]},options:gridOpt(true,true)});
+}
+
+async function birthdays(){
+  const days=state.bdays||30;const rows=await api('/report/birthdays?days='+days+'&sale='+encodeURIComponent(state.sale));const m=$('#main');
+  m.innerHTML=topbar('Sinh nhật khách hàng',{dates:false,exportKey:'birthdays',extra:`<select id="fDays">${[7,14,30,60,90].map(x=>`<option value="${x}" ${x==days?'selected':''}>${x} ngày tới</option>`).join('')}</select>`})+
+  `<div class="card"><h3>${rows.length} khách có sinh nhật trong ${days} ngày tới</h3><div class="tablewrap"><table id="t"><thead><tr><th>Sinh nhật</th><th class="r">Còn</th><th>Khách hàng</th><th>SĐT</th><th class="r">Tuổi</th><th>Sale</th><th>Mua gần nhất</th><th class="r">DS tích luỹ</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td><b>${r.birthday_ddmm}</b></td><td class="r">${r.days_until===0?'<span class="tag good">Hôm nay</span>':r.days_until===1?'<span class="tag warn">Ngày mai</span>':r.days_until+' ngày'}</td><td class="name"><a href="#" onclick="openCustomer(${r.id});return false"><b>${esc(r.name)}</b></a></td><td>${esc(r.contact_number||'')}</td><td class="r">${r.age}</td><td>${esc(r.sale)}</td><td>${dmy(r.last_purchase)||'<span class="muted">chưa mua</span>'}</td><td class="r">${fmt(r.lifetime_revenue)}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">Không có sinh nhật trong khoảng này</td></tr>'}</tbody></table></div></div>`;
+  bindTopbar('birthdays');$('#fDays').onchange=e=>{state.bdays=+e.target.value;loadPage()};sortable('#t');
+}
+
+async function settings(){
+  const s=await api('/status');const users=await api('/users');const m=$('#main');
+  m.innerHTML=topbar('Cài đặt & đồng bộ',{dates:false,sale:false})+`<div class="grid g2">
+    <div class="card"><h3>Kết nối KiotViet</h3><div class="kv"><b>Cửa hàng</b><span>${esc(s.retailer)}</span><b>Trạng thái</b><span>${s.configured?'<span class="tag good">Đã cấu hình</span>':'<span class="tag bad">Chưa có Client ID/Secret trong .env</span>'}</span>
+      <b>Đồng bộ gần nhất</b><span>${s.last_sync?s.last_sync.replace('T',' '):'chưa'}</span><b>Chu kỳ</b><span>mỗi ${s.interval} phút</span><b>Nguồn gán sale</b><span>${esc(s.sale_source)} (đổi trong .env: SALE_SOURCE)</span><b>Ngừng mua</b><span>&gt; ${s.churn_days} ngày (CHURN_DAYS)</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="bSync">Đồng bộ ngay</button><button class="btn" id="bFull">Đồng bộ lại toàn bộ</button></div>
+      <h3 style="margin-top:16px">Dữ liệu hiện có</h3><div class="kv"><b>Khách hàng</b><span>${fmt(s.counts.customers)}</span><b>Hàng hoá</b><span>${fmt(s.counts.products)}</span><b>Hoá đơn</b><span>${fmt(s.counts.invoices)}</span><b>Đơn hàng</b><span>${fmt(s.counts.orders)}</span></div>
+      <h3 style="margin-top:16px">Lịch sử đồng bộ</h3><table>${s.log.map(l=>`<tr><td>${l.started.replace('T',' ')}</td><td>${l.ok?'<span class="tag good">OK</span>':'<span class="tag bad">Lỗi</span>'}</td><td class="small muted">${esc(l.message)} · KH ${l.customers} · HH ${l.products} · HĐ ${l.invoices} · ĐH ${l.orders}</td></tr>`).join('')}</table></div>
+    <div class="card"><h3>Tài khoản CRM</h3><p class="small muted">Kế toán xem tất cả; Sale chỉ xem khách của mình (khớp theo tên sale trong KiotViet). Tài khoản quản trị đặt trong .env.</p>
+      <table><thead><tr><th>Đăng nhập</th><th>Tên</th><th>Vai trò</th><th>Sale</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name||'')}</td><td>${u.role==='accountant'?'Kế toán':'Sale'}</td><td>${esc(u.sale_name||'')}</td><td><button class="btn small" onclick="delUser('${esc(u.username)}')">Xoá</button></td></tr>`).join('')}</tbody></table>
+      <div class="row" style="margin-top:12px"><input id="nu" placeholder="Tên đăng nhập" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="np" placeholder="Mật khẩu" type="password" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="nd" placeholder="Tên hiển thị" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)">
+      <select id="nr" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><option value="accountant">Kế toán</option><option value="sale">Sale</option></select>
+      <select id="ns" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><option value="">— sale —</option>${state.sales.map(x=>`<option>${esc(x)}</option>`).join('')}</select><button class="btn primary" id="bAdd">Thêm / cập nhật</button></div></div></div>`;
+  const al=await api('/aliases');const users_k=state.sales.filter(x=>x!=='(Chưa gán)');
+  m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Bí danh sale <span class="x">đuôi tên khách (vd "TLL", "NB", "Linh") → tên sale thống nhất</span></h3>
+    <p class="small muted">CRM tách phần sau dấu "-" trong tên khách làm sale. Nếu một sale có nhiều cách viết (Linh / Linh Lybyn / TLL), gộp lại ở đây để báo cáo không bị tách dòng. Khách không có đuôi tên sẽ lấy theo người bán trên hoá đơn.</p>
+    <div class="grid g2"><div><b class="small">Đang nhận diện</b><div class="tablewrap" style="max-height:260px"><table><thead><tr><th>Tên sale</th><th class="r">Số KH</th><th></th></tr></thead><tbody>${al.detected.map(d=>`<tr><td>${esc(d.s)}</td><td class="r">${d.n}</td><td><button class="btn small" onclick="$('#aa').value=${JSON.stringify(d.s)};$('#aa').focus()">Gộp…</button></td></tr>`).join('')}</tbody></table></div></div>
+    <div><b class="small">Bí danh đã khai báo</b><table><tbody>${al.aliases.map(a=>`<tr><td>${esc(a.alias)}</td><td>→ ${esc(a.sale_name)}</td><td><button class="btn small" onclick="delAlias(${JSON.stringify(a.alias)})">Xoá</button></td></tr>`).join('')||'<tr><td class="muted">chưa có</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:8px"><input id="aa" placeholder="Bí danh (vd TLL)" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="an" list="salesList" placeholder="Tên sale thống nhất" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><datalist id="salesList">${users_k.map(x=>`<option value="${esc(x)}">`).join('')}</datalist><button class="btn primary" id="bAlias">Lưu</button></div></div></div></div>`);
+  $('#bAlias').onclick=async()=>{await api('/aliases',{method:'POST',body:{alias:$('#aa').value,sale_name:$('#an').value}});toast('Đã lưu & áp dụng');state.sales=await api('/sales');loadPage()};
+  $('#bSync').onclick=async()=>{await api('/sync',{method:'POST'});toast('Đã bắt đầu đồng bộ');refreshSync()};
+  $('#bFull').onclick=async()=>{if(confirm('Tải lại toàn bộ dữ liệu từ KiotViet? Có thể mất vài phút.')){await api('/sync?full=true',{method:'POST'});toast('Đã bắt đầu đồng bộ toàn bộ');refreshSync()}};
+  $('#bAdd').onclick=async()=>{await api('/users',{method:'POST',body:{username:$('#nu').value,password:$('#np').value,display_name:$('#nd').value,role:$('#nr').value,sale_name:$('#ns').value}});toast('Đã lưu');loadPage()};
+}
+async function delAlias(a){if(confirm("Xoá bí danh "+a+"?")){await api("/aliases",{method:"POST",body:{alias:a,delete:true}});state.sales=await api("/sales");loadPage()}}
+async function delUser(u){if(confirm('Xoá tài khoản '+u+'?')){await api('/users',{method:'POST',body:{username:u,delete:true}});loadPage()}}
+
+// ============================================================================
+// Customer modal
+// ============================================================================
+async function openCustomer(id){
+  const d=await api('/customers/'+id);const c=d.customer;const mb=$('#modalBody');
+  mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">${esc(c.name)} <span class="muted small">${esc(c.code)}</span></h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  <div class="grid g2" style="margin-top:12px"><div class="kv"><b>SĐT</b><span>${esc(c.contact_number||'')}</span><b>Sinh nhật</b><span>${dmy(c.birth_date)||'–'}</span><b>Địa chỉ</b><span>${esc([c.address,c.ward_name,c.location_name].filter(Boolean).join(', '))}</span><b>Nhóm KH</b><span>${esc(c.groups||'')}</span><b>Ghi chú KiotViet</b><span>${esc(c.comments||'')}</span>
+    <b>Sale phụ trách</b><span>${esc(c.sale)} ${state.user.role!=='sale'?`<select id="asg" style="margin-left:8px"><option value="">(tự động: ${esc(c.sale_name||'chưa có')})</option>${state.sales.filter(s=>s!=='(Chưa gán)').map(s=>`<option ${s===c.sale_manual?'selected':''}>${esc(s)}</option>`).join('')}</select>`:''}</span>
+    <b>Tạo ngày</b><span>${dmy(c.created_date)} bởi ${esc(c.created_by||'')}</span><b>Công nợ</b><span>${fmt(c.debt)}</span><b>Điểm</b><span>${fmt(c.reward_point)}</span></div>
+    <div><h3>Doanh số theo tháng</h3><div class="chart" style="height:180px"><canvas id="cm"></canvas></div></div></div>
+  <div class="grid g2" style="margin-top:12px"><div><h3>Hoá đơn gần đây</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Sale</th><th class="r">Tổng</th><th>TT</th></tr></thead><tbody>${d.invoices.map(i=>`<tr><td>${esc(i.code)}</td><td>${dmy(i.purchase_date)}</td><td>${esc(i.sold_by_name||'')}</td><td class="r">${fmt(i.total)}</td><td><span class="tag ${i.status_value==='Hoàn thành'?'good':i.status_value==='Đã hủy'?'bad':''}">${esc(i.status_value||'')}</span></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Chưa có hoá đơn</td></tr>'}</tbody></table></div></div>
+    <div><h3>Hàng hay mua</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Hàng</th><th class="r">SL</th><th class="r">Doanh số</th><th>Gần nhất</th></tr></thead><tbody>${d.items.map(i=>`<tr><td class="name">${esc(i.product_name)}</td><td class="r">${fmt(i.qty)}</td><td class="r">${fmt(i.rev)}</td><td>${dmy(i.last_d)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">–</td></tr>'}</tbody></table></div></div></div>
+  <h3 style="margin-top:12px">Ghi chú CRM</h3>${d.notes.map(n=>`<div class="small" style="padding:6px 0;border-bottom:1px solid var(--border)"><b>${esc(n.author)}</b> <span class="muted">${n.created.replace('T',' ')}</span><br>${esc(n.content)}</div>`).join('')}
+  <textarea id="note" placeholder="Thêm ghi chú (gọi điện, hẹn gặp, phản hồi...)" style="margin-top:8px"></textarea><div class="row" style="margin-top:6px"><button class="btn primary" id="bNote">Lưu ghi chú</button></div>`;
+  $('#modal').classList.add('open');
+  $('#bNote').onclick=async()=>{const v=$('#note').value.trim();if(!v)return;await api(`/customers/${id}/notes`,{method:'POST',body:{content:v}});openCustomer(id)};
+  const a=$('#asg');if(a)a.onchange=async()=>{await api(`/customers/${id}/sale`,{method:'POST',body:{sale:a.value}});toast('Đã gán sale');state.sales=await api('/sales')};
+  chart('cm',{type:'bar',data:{labels:d.monthly.map(x=>x.ym.slice(5)+'/'+x.ym.slice(2,4)),datasets:[{data:d.monthly.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+d.monthly[c.dataIndex].n+' HĐ'}}}})});
+}
+function closeModal(){$('#modal').classList.remove('open')}
+$('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};
+
+// Sort table by clicking header (simple, client side)
+function sortable(sel,redraw){const t=$(sel);if(!t)return;t.querySelectorAll('th').forEach((th,i)=>{th.onclick=()=>{const tb=t.tBodies[0];const rows=[...tb.rows];const asc=th.dataset.asc!=='1';th.dataset.asc=asc?'1':'0';
+  const val=r=>{const x=r.cells[i].textContent.replace(/[^\d.,\-−]/g,'').replace('−','-').replace(/\./g,'').replace(',','.');return x!==''&&!isNaN(+x)?+x:r.cells[i].textContent.toLowerCase()};
+  rows.sort((a,b)=>{const A=val(a),B=val(b);return (A>B?1:A<B?-1:0)*(asc?1:-1)});rows.forEach(r=>tb.appendChild(r))}})}
+
+// Theme + boot
+api('/me').then(u=>{state.user=u;boot()}).catch(()=>render());
+api('/status').then(s=>state.churn=s.churn_days).catch(()=>{});
+</script>
+</body>
+</html>
