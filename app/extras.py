@@ -380,7 +380,7 @@ async def teams_save(request: Request, user=Depends(current_user)):
                 con.execute("INSERT OR REPLACE INTO teams(sale,team) VALUES(?,?)", (b["sale"], b["team"].strip()))
             else:
                 con.execute("DELETE FROM teams WHERE sale=?", (b["sale"],))
-    if b.get("basis") in ("customer", "invoice"):
+    if b.get("basis") in ("customer", "invoice", "accounting"):
         db.set_meta("report_basis", b["basis"])
     return {"ok": True}
 
@@ -405,7 +405,7 @@ async def catmap_save(request: Request, user=Depends(current_user)):
 
 @router.get("/boss")
 def boss_list(user=Depends(current_user)):
-    rows = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number,
+    rows = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, COALESCE(c.boss_no_kpi,0) boss_no_kpi,
         COALESCE((SELECT SUM(i.total) FROM invoices i WHERE i.customer_id=c.id AND i.status=1
                   AND i.purchase_date >= date('now','-365 days')),0) rev
         FROM customers c WHERE COALESCE(c.is_boss,0)=1 ORDER BY rev DESC""")
@@ -421,11 +421,14 @@ async def boss_save(request: Request, user=Depends(current_user)):
     n = 0
     with db.cursor() as con:
         if b.get("id") is not None:
-            con.execute("UPDATE customers SET is_boss=? WHERE id=?", (1 if b.get("on") else 0, b["id"]))
+            if "no_kpi" in b:
+                con.execute("UPDATE customers SET boss_no_kpi=? WHERE id=?", (1 if b.get("no_kpi") else 0, b["id"]))
+            else:
+                con.execute("UPDATE customers SET is_boss=? WHERE id=?", (1 if b.get("on") else 0, b["id"]))
             n = 1
         elif b.get("codes"):
             if b.get("reset"):
-                con.execute("UPDATE customers SET is_boss=0")
+                con.execute("UPDATE customers SET is_boss=0, boss_no_kpi=0")
             for line in str(b["codes"]).replace(",", "\n").replace("\t", "\n").splitlines():
                 v = line.strip()
                 if not v:

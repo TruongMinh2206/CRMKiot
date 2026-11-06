@@ -361,10 +361,19 @@ def trade_marks():
     return rows
 
 
-def _seller_expr(basis):
+CUST_EXPR = "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')"
+INV_EXPR = "COALESCE(NULLIF(i.sold_by_name,''),'(Không rõ)')"
+
+
+def _seller_expr(basis, boss=False):
+    """basis: customer | invoice | accounting (giống cách kế toán đang tính tay).
+    Chế độ 'accounting': khách sale tính theo người bán trên hoá đơn,
+    khách sếp tính theo sale phụ trách khách (như BẢNG 1 + BẢNG 2 của kế toán)."""
+    if basis == "accounting":
+        return CUST_EXPR if boss else INV_EXPR
     if basis == "invoice":
-        return "COALESCE(NULLIF(i.sold_by_name,''),'(Không rõ)')"
-    return "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')"
+        return INV_EXPR
+    return CUST_EXPR
 
 
 DEFAULT_ALLOC = {"normal": 35, "excl_new": 20, "excl_old": 30, "slow": 10, "new_customer": 5}
@@ -408,25 +417,39 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
           else "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')")
     cm = cat_map()
 
+    bx = _seller_expr(basis, boss=True)
     totals = {}
-    for r in db.rows(f"""SELECT {sx} s,
-            SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN i.total ELSE 0 END) rev_boss,
-            SUM(CASE WHEN COALESCE(c.is_boss,0)=0 THEN i.total ELSE 0 END) rev_sale,
-            SUM(i.total) gross, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
+    for r in db.rows(f"""SELECT {sx} s, SUM(i.total) rev_sale, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
         FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
-        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
-        totals[r["s"]] = dict(r)
+        WHERE {INV_OK} AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        totals[r["s"]] = {"rev_sale": r["rev_sale"] or 0, "rev_boss": 0,
+                          "invoices": r["invoices"], "customers": r["customers"]}
+    for r in db.rows(f"""SELECT {bx} s, SUM(i.total) rev_boss, COUNT(*) invoices
+        FROM invoices i JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND COALESCE(c.is_boss,0)=1 AND COALESCE(c.boss_no_kpi,0)=0
+          AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        d0 = totals.setdefault(r["s"], {"rev_sale": 0, "rev_boss": 0, "invoices": 0, "customers": 0})
+        d0["rev_boss"] = r["rev_boss"] or 0
+        d0["invoices"] += r["invoices"]
+    for v in totals.values():
+        v["gross"] = v["rev_sale"] + v["rev_boss"]
 
     # hàng trả trong kỳ (loại trừ khỏi doanh số, theo đúng quy trình)
     rets = {}
-    for r in db.rows(f"""SELECT {rx} s,
-            SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN r.total ELSE 0 END) ret_boss,
-            SUM(CASE WHEN COALESCE(c.is_boss,0)=0 THEN r.total ELSE 0 END) ret_sale,
-            SUM(r.total) ret_total, COUNT(*) ret_n
+    for r in db.rows(f"""SELECT {rx} s, SUM(r.total) ret_sale, COUNT(*) ret_n
         FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
         LEFT JOIN invoices oi ON oi.id=r.invoice_id
-        WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
-        rets[r["s"]] = dict(r)
+        WHERE COALESCE(c.is_boss,0)=0 AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        rets[r["s"]] = {"ret_sale": r["ret_sale"] or 0, "ret_boss": 0, "ret_n": r["ret_n"]}
+    for r in db.rows(f"""SELECT {bx} s, SUM(r.total) ret_boss, COUNT(*) ret_n
+        FROM returns r JOIN customers c ON c.id=r.customer_id
+        WHERE COALESCE(c.is_boss,0)=1 AND COALESCE(c.boss_no_kpi,0)=0
+          AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        d0 = rets.setdefault(r["s"], {"ret_sale": 0, "ret_boss": 0, "ret_n": 0})
+        d0["ret_boss"] = r["ret_boss"] or 0
+        d0["ret_n"] += r["ret_n"]
+    for v in rets.values():
+        v["ret_total"] = v["ret_sale"] + v["ret_boss"]
 
     prev = {}
     for r in db.rows(f"""SELECT {sx} s, SUM(i.total) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id

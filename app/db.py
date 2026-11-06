@@ -132,6 +132,8 @@ def init():
         ccols = [r[1] for r in con.execute("PRAGMA table_info(customers)")]
         if "is_boss" not in ccols:
             con.execute("ALTER TABLE customers ADD COLUMN is_boss INTEGER DEFAULT 0")
+        if "boss_no_kpi" not in ccols:
+            con.execute("ALTER TABLE customers ADD COLUMN boss_no_kpi INTEGER DEFAULT 0")
         dcols = [r[1] for r in con.execute("PRAGMA table_info(invoice_details)")]
         if "trade_mark" not in dcols:
             con.execute("ALTER TABLE invoice_details ADD COLUMN trade_mark TEXT")

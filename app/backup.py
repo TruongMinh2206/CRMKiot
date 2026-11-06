@@ -46,7 +46,7 @@ def save(tables=None):
                     payload["customer_manual"] = [dict(r) for r in con.execute(
                         "SELECT id, sale_manual FROM customers WHERE sale_manual IS NOT NULL AND sale_manual<>''").fetchall()]
                     payload["customer_boss"] = [dict(r) for r in con.execute(
-                        "SELECT id FROM customers WHERE COALESCE(is_boss,0)=1").fetchall()]
+                        "SELECT id, COALESCE(boss_no_kpi,0) boss_no_kpi FROM customers WHERE COALESCE(is_boss,0)=1").fetchall()]
                     q = ",".join("?" * len(SETTING_KEYS))
                     payload["settings"] = [dict(r) for r in con.execute(
                         f"SELECT key, value FROM meta WHERE key IN ({q})", SETTING_KEYS).fetchall()]
@@ -98,7 +98,7 @@ def restore():
             if not con.execute("SELECT 1 FROM meta WHERE key=?", (r["key"],)).fetchone():
                 con.execute("INSERT INTO meta(key,value) VALUES(?,?)", (r["key"], r["value"]))
         for r in (json.loads(data["customer_boss"]) if isinstance(data.get("customer_boss"), str) else (data.get("customer_boss") or [])):
-            con.execute("UPDATE customers SET is_boss=1 WHERE id=?", (r["id"],))
+            con.execute("UPDATE customers SET is_boss=1, boss_no_kpi=? WHERE id=?", (r.get("boss_no_kpi", 0), r["id"]))
         cm = data.get("customer_manual") or []
         if isinstance(cm, str):
             cm = json.loads(cm)
