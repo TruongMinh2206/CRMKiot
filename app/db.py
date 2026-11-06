@@ -47,6 +47,20 @@ CREATE TABLE IF NOT EXISTS invoice_details (
 );
 CREATE INDEX IF NOT EXISTS ix_invd_prod ON invoice_details(product_id);
 
+CREATE TABLE IF NOT EXISTS returns (
+  id INTEGER PRIMARY KEY, code TEXT, return_date TEXT, invoice_id INTEGER, branch_id INTEGER,
+  customer_id INTEGER, customer_code TEXT, customer_name TEXT, sold_by_name TEXT,
+  total REAL, return_fee REAL, status INTEGER, status_value TEXT, description TEXT, created_date TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_ret_date ON returns(return_date);
+CREATE INDEX IF NOT EXISTS ix_ret_cust ON returns(customer_id);
+
+CREATE TABLE IF NOT EXISTS return_details (
+  return_id INTEGER, line INTEGER, product_id INTEGER, product_code TEXT, product_name TEXT,
+  quantity REAL, price REAL, sub_total REAL, trade_mark TEXT,
+  PRIMARY KEY (return_id, line)
+);
+
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY, code TEXT, purchase_date TEXT, branch_id INTEGER, branch_name TEXT,
   sold_by_id INTEGER, sold_by_name TEXT, customer_id INTEGER, customer_code TEXT, customer_name TEXT,

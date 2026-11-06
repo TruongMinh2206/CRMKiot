@@ -367,40 +367,95 @@ def _seller_expr(basis):
     return "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')"
 
 
-def sales_board(from_d, to_d, basis="customer", ym=None):
-    """Bảng doanh số: theo sale/team, tách khách sếp, tách nhóm hàng, so chỉ tiêu."""
+DEFAULT_ALLOC = {"normal": 35, "excl_new": 20, "excl_old": 30, "slow": 10, "new_customer": 5}
+
+
+def kpi_alloc():
+    """Phân bổ chỉ tiêu theo nhóm hàng (%). Theo quy trình: 35/20/30/10 + khách mới 5%."""
     import json
+    raw = db.get_meta("kpi_alloc")
+    if raw:
+        try:
+            return {**DEFAULT_ALLOC, **json.loads(raw)}
+        except Exception:
+            pass
+    return dict(DEFAULT_ALLOC)
+
+
+def _weeks(from_d, to_d):
+    """Chia kỳ thành tuần 1-4(5) theo ngày trong tháng, giống bảng Excel."""
+    f = datetime.fromisoformat(from_d).date()
+    t = datetime.fromisoformat(to_d).date()
+    out = []
+    i = 1
+    cur = f
+    while cur <= t:
+        end = min(cur + timedelta(days=6), t)
+        out.append({"week": i, "from": cur.isoformat(), "to": end.isoformat()})
+        cur = end + timedelta(days=1)
+        i += 1
+    return out
+
+
+def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
+    """Bảng doanh số: theo sale/team, trừ hàng trả, tách khách sếp, tách nhóm hàng, so chỉ tiêu."""
     f, t, pf, pt = _period(from_d, to_d)
     ym = ym or from_d[:7]
     sx = _seller_expr(basis)
+    # người chịu trách nhiệm của phiếu trả: theo khách, hoặc theo người bán hoá đơn gốc
+    rx = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')"
+          if basis == "invoice"
+          else "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''), '(Chưa gán)')")
     cm = cat_map()
 
-    # 1) Tổng theo hoá đơn: tách khách sale / khách sếp
     totals = {}
     for r in db.rows(f"""SELECT {sx} s,
             SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN i.total ELSE 0 END) rev_boss,
             SUM(CASE WHEN COALESCE(c.is_boss,0)=0 THEN i.total ELSE 0 END) rev_sale,
-            SUM(i.total) total, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
+            SUM(i.total) gross, COUNT(*) invoices, COUNT(DISTINCT i.customer_id) customers
         FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
-        totals[r["s"]] = r
+        totals[r["s"]] = dict(r)
 
-    # 2) Kỳ trước (để so sánh)
-    prev = {r["s"]: r["total"] for r in db.rows(f"""SELECT {sx} s, SUM(i.total) total
-        FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
-        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt))}
+    # hàng trả trong kỳ (loại trừ khỏi doanh số, theo đúng quy trình)
+    rets = {}
+    for r in db.rows(f"""SELECT {rx} s,
+            SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN r.total ELSE 0 END) ret_boss,
+            SUM(CASE WHEN COALESCE(c.is_boss,0)=0 THEN r.total ELSE 0 END) ret_sale,
+            SUM(r.total) ret_total, COUNT(*) ret_n
+        FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
+        LEFT JOIN invoices oi ON oi.id=r.invoice_id
+        WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        rets[r["s"]] = dict(r)
 
-    # 3) Nhóm hàng (chỉ tính trên khách sale, giống bảng Excel)
+    prev = {}
+    for r in db.rows(f"""SELECT {sx} s, SUM(i.total) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
+        prev[r["s"]] = r["v"] or 0
+    for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
+        LEFT JOIN invoices oi ON oi.id=r.invoice_id WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
+        prev[r["s"]] = prev.get(r["s"], 0) - (r["v"] or 0)
+
+    # nhóm hàng (chỉ trên khách sale), đã trừ hàng trả
     cats = {}
+
+    def addcat(sale, tm, amount):
+        key = cm.get(tm or "", "normal")
+        cats.setdefault(sale, {}).setdefault(key, 0)
+        cats[sale][key] += amount
+
     for r in db.rows(f"""SELECT {sx} s, COALESCE(NULLIF(d.trade_mark,''), p.trade_mark, '') tm, SUM(d.sub_total) rev
         FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id
         LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN products p ON p.id=d.product_id
         WHERE {INV_OK} AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
-        key = cm.get(r["tm"] or "", "normal")
-        cats.setdefault(r["s"], {}).setdefault(key, 0)
-        cats[r["s"]][key] += r["rev"] or 0
+        addcat(r["s"], r["tm"], r["rev"] or 0)
+    for r in db.rows(f"""SELECT {rx} s, COALESCE(NULLIF(rd.trade_mark,''), p.trade_mark, '') tm, SUM(rd.sub_total) rev
+        FROM return_details rd JOIN returns r ON r.id=rd.return_id
+        LEFT JOIN customers c ON c.id=r.customer_id LEFT JOIN invoices oi ON oi.id=r.invoice_id
+        LEFT JOIN products p ON p.id=rd.product_id
+        WHERE COALESCE(c.is_boss,0)=0 AND r.return_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
+        addcat(r["s"], r["tm"], -(r["rev"] or 0))
 
-    # 4) Doanh số từ khách mua lần đầu trong kỳ
     newc = {r["s"]: r["rev"] for r in db.rows(f"""
         WITH firstbuy AS (SELECT customer_id, MIN(purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
         SELECT {sx} s, SUM(i.total) rev FROM invoices i
@@ -409,34 +464,68 @@ def sales_board(from_d, to_d, basis="customer", ym=None):
 
     targets = {r["sale"]: r for r in db.rows("SELECT * FROM kpi_targets WHERE ym=?", (ym,))}
     team_of = {r["sale"]: r["team"] for r in db.rows("SELECT sale, team FROM teams")}
+    alloc = kpi_alloc()
+
+    weeks = _weeks(from_d, to_d) if weekly else []
+    wk = {}
+    if weekly:
+        for w in weeks:
+            wf, wt = w["from"], w["to"] + " 23:59:59"
+            for r in db.rows(f"""SELECT {sx} s, SUM(i.total) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+                WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
+                wk.setdefault(r["s"], {})[w["week"]] = r["v"] or 0
+            for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
+                LEFT JOIN invoices oi ON oi.id=r.invoice_id WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
+                d0 = wk.setdefault(r["s"], {})
+                d0[w["week"]] = d0.get(w["week"], 0) - (r["v"] or 0)
 
     out = []
-    for s in set(totals) | set(targets):
+    for s in set(totals) | set(targets) | set(rets):
         tt = totals.get(s) or {}
+        rr = rets.get(s) or {}
         c = cats.get(s, {})
         tg = (targets.get(s) or {}).get("revenue_target") or 0
+        rev_sale = (tt.get("rev_sale") or 0) - (rr.get("ret_sale") or 0)
+        rev_boss = (tt.get("rev_boss") or 0) - (rr.get("ret_boss") or 0)
         row = {"sale": s, "team": team_of.get(s) or "(Chưa xếp team)",
-               "rev_sale": tt.get("rev_sale", 0) or 0, "rev_boss": tt.get("rev_boss", 0) or 0,
-               "total": tt.get("total", 0) or 0, "invoices": tt.get("invoices", 0) or 0,
-               "customers": tt.get("customers", 0) or 0, "prev": prev.get(s, 0) or 0,
-               "new_customer_rev": newc.get(s, 0) or 0, "target": tg}
+               "gross": tt.get("gross", 0) or 0, "returns": rr.get("ret_total", 0) or 0,
+               "returns_n": rr.get("ret_n", 0) or 0,
+               "rev_sale": rev_sale, "rev_boss": rev_boss, "total": rev_sale + rev_boss,
+               "invoices": tt.get("invoices", 0) or 0, "customers": tt.get("customers", 0) or 0,
+               "prev": prev.get(s, 0) or 0, "new_customer_rev": newc.get(s, 0) or 0, "target": tg}
         for k, _ in CAT_KEYS:
             row[k] = c.get(k, 0)
+            row[k + "_target"] = round(tg * alloc.get(k, 0) / 100)
+            row[k + "_pct"] = round(row[k] / row[k + "_target"] * 100, 1) if row[k + "_target"] else None
+        row["new_customer_target"] = round(tg * alloc.get("new_customer", 0) / 100)
+        row["new_customer_pct"] = (round(row["new_customer_rev"] / row["new_customer_target"] * 100, 1)
+                                   if row["new_customer_target"] else None)
         row["pct"] = round(row["total"] / tg * 100, 1) if tg else None
         row["status"] = None if tg == 0 else ("ĐẠT" if row["total"] >= tg else "K ĐẠT")
         row["growth"] = _growth(row["total"], row["prev"])
-        out.append(row)
+        if weekly:
+            row["weeks"] = [wk.get(s, {}).get(w["week"], 0) for w in weeks]
+        if row["gross"] or row["returns"] or tg:
+            out.append(row)
     out.sort(key=lambda r: (r["team"], -r["total"]))
 
+    SUMK = ["target", "rev_sale", "rev_boss", "total", "prev", "new_customer_rev", "gross", "returns",
+            "new_customer_target"] + [k for k, _ in CAT_KEYS] + [k + "_target" for k, _ in CAT_KEYS]
     teams = {}
     for r in out:
-        g = teams.setdefault(r["team"], {"team": r["team"], "target": 0, "rev_sale": 0, "rev_boss": 0,
-                                         "total": 0, "prev": 0, "new_customer_rev": 0,
-                                         **{k: 0 for k, _ in CAT_KEYS}})
-        for k in ("target", "rev_sale", "rev_boss", "total", "prev", "new_customer_rev") + tuple(k for k, _ in CAT_KEYS):
+        g = teams.setdefault(r["team"], {"team": r["team"], **{k: 0 for k in SUMK},
+                                         "weeks": [0] * len(weeks)})
+        for k in SUMK:
             g[k] += r[k]
+        if weekly:
+            g["weeks"] = [a + b for a, b in zip(g["weeks"], r["weeks"])]
     for g in teams.values():
         g["pct"] = round(g["total"] / g["target"] * 100, 1) if g["target"] else None
         g["status"] = None if not g["target"] else ("ĐẠT" if g["total"] >= g["target"] else "K ĐẠT")
+        for k, _ in CAT_KEYS:
+            g[k + "_pct"] = round(g[k] / g[k + "_target"] * 100, 1) if g[k + "_target"] else None
+        g["new_customer_pct"] = (round(g["new_customer_rev"] / g["new_customer_target"] * 100, 1)
+                                 if g["new_customer_target"] else None)
     return {"basis": basis, "ym": ym, "from": from_d, "to": to_d, "rows": out,
-            "teams": sorted(teams.values(), key=lambda g: -g["total"]), "cats": CAT_KEYS}
+            "teams": sorted(teams.values(), key=lambda g: -g["total"]), "cats": CAT_KEYS,
+            "alloc": alloc, "weeks": weeks}

@@ -331,13 +331,13 @@ async def lead_convert(lid: int, request: Request, user=Depends(current_user)):
 # Bảng doanh số theo mẫu Excel: team · khách sếp · nhóm hàng
 # ===========================================================================
 @router.get("/board")
-def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), basis: str = None, user=Depends(current_user)):
+def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), basis: str = None, weekly: int = 0, user=Depends(current_user)):
     from datetime import date as _d
     today = _d.today()
     f = from_d or today.replace(day=1).isoformat()
     t = to_d or today.isoformat()
     basis = basis or db.get_meta("report_basis") or "customer"
-    b = reports.sales_board(f, t, basis)
+    b = reports.sales_board(f, t, basis, weekly=bool(weekly))
     if user["role"] == "sale":
         me = user.get("sale_name")
         b["rows"] = [r for r in b["rows"] if r["sale"] == me]
@@ -387,7 +387,7 @@ async def teams_save(request: Request, user=Depends(current_user)):
 
 @router.get("/catmap")
 def catmap_get(user=Depends(current_user)):
-    return {"marks": reports.trade_marks(), "cats": reports.CAT_KEYS}
+    return {"marks": reports.trade_marks(), "cats": reports.CAT_KEYS, "alloc": reports.kpi_alloc()}
 
 
 @router.post("/catmap")
@@ -396,7 +396,10 @@ async def catmap_save(request: Request, user=Depends(current_user)):
         raise HTTPException(403)
     import json as _j
     b = await request.json()
-    db.set_meta("cat_map", _j.dumps(b.get("map") or {}, ensure_ascii=False))
+    if b.get("map") is not None:
+        db.set_meta("cat_map", _j.dumps(b["map"], ensure_ascii=False))
+    if b.get("alloc") is not None:
+        db.set_meta("kpi_alloc", _j.dumps(b["alloc"], ensure_ascii=False))
     return {"ok": True}
 
 

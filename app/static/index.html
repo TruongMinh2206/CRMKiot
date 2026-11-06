@@ -361,12 +361,16 @@ async function settings(){
     <textarea id="bossT" placeholder="KH000923&#10;NT Live Chu Thị Lệ - KTBH"></textarea>
     <div class="row" style="margin-top:8px"><button class="btn primary" id="bBoss">Đánh dấu</button><label class="small"><input type="checkbox" id="bossReset"> xoá đánh dấu cũ trước</label></div>
     ${bosses.length?`<div class="tablewrap" style="max-height:220px;margin-top:10px"><table><thead><tr><th>Mã</th><th>Khách</th><th class="r">DS 12 tháng</th><th></th></tr></thead><tbody>${bosses.map(b=>`<tr><td class="muted">${esc(b.code)}</td><td class="name">${esc(b.name)}</td><td class="r">${fmt(b.rev)}</td><td><button class="btn small" onclick="unBoss(${b.id})">Bỏ</button></td></tr>`).join('')}</tbody></table></div>`:''}</div></div>
+   <div class="card" style="margin-top:14px"><h3>Phân bổ chỉ tiêu theo nhóm hàng <span class="x">tổng 4 nhóm hàng nên bằng 100%; "khách mới" theo dõi riêng</span></h3>
+    <div class="row">${[['normal','Hàng thông thường'],['excl_new','Độc quyền mới'],['excl_old','Độc quyền cũ'],['slow','Tồn lâu - cận date'],['new_customer','Bán cho khách mới']].map(([k,l])=>`<label class="small">${l}<br><input class="f alIn" data-k="${k}" type="number" value="${(cmv.alloc||{})[k]??0}" style="width:90px"> %</label>`).join('')}
+    <button class="btn primary" id="bAlloc" style="align-self:flex-end">Lưu phân bổ</button></div></div>
    <div class="card" style="margin-top:14px"><h3>Nhóm hàng cho báo cáo <span class="x">ánh xạ Nhãn hiệu trong KiotViet → cột trong Bảng doanh số</span></h3>
     <div class="tablewrap" style="max-height:320px"><table><thead><tr><th>Nhãn hiệu (KiotViet)</th><th class="r">DS 12 tháng</th><th>Xếp vào cột</th></tr></thead><tbody>
     ${cmv.marks.map(x=>`<tr><td>${esc(x.tm||'(không có nhãn hiệu)')}</td><td class="r">${fmt(x.rev)}</td><td><select class="f cmIn" data-tm="${esc(x.tm)}">${cmv.cats.map(c=>`<option value="${c[0]}" ${c[0]===x.cat?'selected':''}>${c[1]}</option>`).join('')}</select></td></tr>`).join('')}
     </tbody></table></div><div class="row" style="margin-top:10px"><button class="btn primary" id="bCat">Lưu nhóm hàng</button></div></div>`);
   $('#bTeams').onclick=async()=>{const rows=[...document.querySelectorAll('.tmIn')].map(i=>({sale:i.dataset.s,team:i.value}));await api('/teams',{method:'POST',body:{replace:rows}});toast('Đã lưu team')};
   $('#bBoss').onclick=async()=>{const r=await api('/boss',{method:'POST',body:{codes:$('#bossT').value,reset:$('#bossReset').checked}});toast('Đã đánh dấu '+r.updated+' khách');loadPage()};
+  $('#bAlloc').onclick=async()=>{const mp={};document.querySelectorAll('.alIn').forEach(i=>mp[i.dataset.k]=+i.value||0);await api('/catmap',{method:'POST',body:{alloc:mp}});toast('Đã lưu phân bổ')};
   $('#bCat').onclick=async()=>{const mp={};document.querySelectorAll('.cmIn').forEach(sel=>{if(sel.value!=='normal')mp[sel.dataset.tm]=sel.value});await api('/catmap',{method:'POST',body:{map:mp}});toast('Đã lưu nhóm hàng')};
   const bs=$('#bSnap');if(bs)bs.onclick=async()=>{bs.textContent='Đang lưu…';bs.disabled=true;await api('/snapshot',{method:'POST'});setTimeout(async()=>{toast('Đã sao lưu');loadPage()},6000)};
   $('#bSet').onclick=async()=>{const b=$('#bSet');b.textContent='Đang tính lại…';b.disabled=true;const r=await api('/settings',{method:'POST',body:{sale_source:$('#sSrc').value,churn_days:$('#sChurn').value}});toast(r.pending?'Đã lưu — sẽ áp dụng khi đồng bộ xong':'Đang tính lại ở chế độ nền…');refreshSync();b.textContent='Lưu & tính lại';b.disabled=false};
@@ -383,28 +387,36 @@ async function delUser(u){if(confirm('Xoá tài khoản '+u+'?')){await api('/us
 // Bảng doanh số (mẫu Excel)
 // ============================================================================
 async function board(){
-  const m=$('#main');const basis=state.basis||'';
-  const d=await api(`/board?from=${state.from}&to=${state.to}`+(basis?'&basis='+basis:''));
+  const m=$('#main');const basis=state.basis||'';const wk=state.weekly?'&weekly=1':'';
+  const d=await api(`/board?from=${state.from}&to=${state.to}${wk}`+(basis?'&basis='+basis:''));
   state.basis=d.basis;
   const C=d.cats;const money=v=>v?fmt(v):'–';
   const st=v=>v==null?'':`<span class="tag ${v==='ĐẠT'?'good':'bad'}">${v}</span>`;
-  const pctCell=p=>p==null?'<span class="muted">–</span>':`<b style="color:${p>=100?'var(--good)':p>=80?'var(--warn)':'var(--bad)'}">${p}%</b>`;
+  const col=p=>p==null?'var(--muted)':p>=100?'var(--good)':p>=80?'var(--warn)':'var(--bad)';
+  const pctCell=p=>p==null?'<span class="muted">–</span>':`<b style="color:${col(p)}">${p}%</b>`;
+  const cell=(v,p)=>`<td class="r">${money(v)}${p!=null?`<br><span class="small" style="color:${col(p)}">${p}%</span>`:''}</td>`;
   const byTeam={};d.rows.forEach(r=>(byTeam[r.team]=byTeam[r.team]||[]).push(r));
-  const head=`<tr><th>Team / Sale</th><th class="r">Mục tiêu</th><th class="r">DS khách sale</th>${C.map(c=>`<th class="r">${c[1]}</th>`).join('')}<th class="r">Bán cho KH mới</th><th class="r">DS khách sếp</th><th class="r">TỔNG</th><th class="r">% KPI</th><th>Tình trạng</th><th class="r">Kỳ trước</th></tr>`;
-  const teamRow=g=>`<tr style="background:var(--brand-2);font-weight:600"><td>TỔNG TEAM ${esc(g.team).toUpperCase()}</td><td class="r">${money(g.target)}</td><td class="r">${money(g.rev_sale)}</td>${C.map(c=>`<td class="r">${money(g[c[0]])}</td>`).join('')}<td class="r">${money(g.new_customer_rev)}</td><td class="r">${money(g.rev_boss)}</td><td class="r">${money(g.total)}</td><td class="r">${pctCell(g.pct)}</td><td>${st(g.status)}</td><td class="r muted">${money(g.prev)}</td></tr>`;
-  const saleRow=r=>`<tr><td style="padding-left:22px">${esc(r.sale)}</td><td class="r muted">${money(r.target)}</td><td class="r">${money(r.rev_sale)}</td>${C.map(c=>`<td class="r">${money(r[c[0]])}</td>`).join('')}<td class="r">${money(r.new_customer_rev)}</td><td class="r">${money(r.rev_boss)}</td><td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td><td class="r muted">${money(r.prev)}</td></tr>`;
-  const body=d.teams.map(g=>teamRow(g)+(byTeam[g.team]||[]).map(saleRow).join('')).join('');
+  const W=d.weeks||[];
+  const head=`<tr><th>Team / Sale</th><th class="r">Mục tiêu</th><th class="r">DS khách sale</th>${C.map(c=>`<th class="r">${c[1]}<br><span class="small muted">${d.alloc[c[0]]||0}%</span></th>`).join('')}<th class="r">Bán cho KH mới<br><span class="small muted">${d.alloc.new_customer||0}%</span></th><th class="r">DS khách sếp</th>${W.map(w=>`<th class="r">Tuần ${w.week}</th>`).join('')}<th class="r">Hàng trả</th><th class="r">TỔNG</th><th class="r">% KPI</th><th>Tình trạng</th></tr>`;
+  const line=(r,isTeam)=>`<tr ${isTeam?'style="background:var(--brand-2);font-weight:600"':''}><td ${isTeam?'':'style="padding-left:22px"'}>${isTeam?'TỔNG TEAM '+esc(r.team).toUpperCase():esc(r.sale)}</td>
+    <td class="r ${isTeam?'':'muted'}">${money(r.target)}</td><td class="r">${money(r.rev_sale)}</td>
+    ${C.map(c=>cell(r[c[0]],r[c[0]+'_pct'])).join('')}${cell(r.new_customer_rev,r.new_customer_pct)}
+    <td class="r">${money(r.rev_boss)}</td>${(r.weeks||[]).map(v=>`<td class="r">${money(v)}</td>`).join('')}
+    <td class="r" style="color:${r.returns?'var(--bad)':'var(--muted)'}">${r.returns?'−'+fmt(r.returns):'–'}</td>
+    <td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td></tr>`;
+  const body=d.teams.map(g=>line(g,true)+(byTeam[g.team]||[]).map(r=>line(r,false)).join('')).join('');
   const T=k=>d.rows.reduce((a,r)=>a+(r[k]||0),0);
-  m.innerHTML=topbar('Bảng doanh số',{sale:false,exportKey:'board',extra:`<select class="f" id="fBasis"><option value="customer" ${d.basis==='customer'?'selected':''}>Tính theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tính theo người bán trên hoá đơn</option></select>`})+
-  `<div class="grid g4"><div class="card tile"><h3>Tổng doanh số</h3><div class="v">${fmtK(T('total'))}</div><div class="d">khách sale ${fmtK(T('rev_sale'))} · khách sếp ${fmtK(T('rev_boss'))}</div></div>
+  m.innerHTML=topbar('Bảng doanh số',{sale:false,exportKey:'board',extra:`<select class="f" id="fBasis"><option value="customer" ${d.basis==='customer'?'selected':''}>Tính theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tính theo người bán trên hoá đơn</option></select><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="fWeek" ${state.weekly?'checked':''}> theo tuần</label>`})+
+  `<div class="grid g4"><div class="card tile"><h3>Doanh số thực</h3><div class="v">${fmtK(T('total'))}</div><div class="d">bán ${fmtK(T('gross'))} − trả ${fmtK(T('returns'))}</div></div>
    <div class="card tile"><h3>Mục tiêu</h3><div class="v">${fmtK(T('target'))}</div><div class="d">${T('target')?'đạt '+Math.round(T('total')/T('target')*100)+'%':'chưa đặt chỉ tiêu'} · <a href="#kpi">đặt</a></div></div>
    <div class="card tile"><h3>Độc quyền (mới + cũ)</h3><div class="v">${fmtK(T('excl_new')+T('excl_old'))}</div><div class="d">mới ${fmtK(T('excl_new'))} · cũ ${fmtK(T('excl_old'))}</div></div>
-   <div class="card tile"><h3>Bán cho khách mới</h3><div class="v">${fmtK(T('new_customer_rev'))}</div><div class="d">khách mua lần đầu trong kỳ</div></div></div>
-  <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'}</span></h3>
-   <div class="tablewrap"><table id="t"><thead>${head}</thead><tbody>${body||'<tr><td colspan="12" class="empty">Chưa có dữ liệu</td></tr>'}</tbody></table></div>
-   <p class="small muted">Cột nhóm hàng tính trên phần khách sale (giống bảng Excel). Đánh dấu khách sếp và xếp team ở trang Cài đặt.</p></div>`;
+   <div class="card tile"><h3>Khách sếp</h3><div class="v">${fmtK(T('rev_boss'))}</div><div class="d">khách sale ${fmtK(T('rev_sale'))}</div></div></div>
+  <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'} · đã trừ hàng trả</span></h3>
+   <div class="tablewrap"><table id="t"><thead>${head}</thead><tbody>${body||'<tr><td colspan="16" class="empty">Chưa có dữ liệu</td></tr>'}</tbody></table></div>
+   <p class="small muted">% dưới mỗi nhóm hàng là mức đạt so với phần chỉ tiêu phân bổ cho nhóm đó (sửa tỷ lệ trong Cài đặt). Cột nhóm hàng và "bán cho khách mới" tính trên phần khách sale; "khách mới" theo dõi riêng, không cộng vào tổng.</p></div>`;
   bindTopbar('board');
   $('#fBasis').onchange=async e=>{state.basis=e.target.value;await api('/teams',{method:'POST',body:{basis:e.target.value}});loadPage()};
+  $('#fWeek').onchange=e=>{state.weekly=e.target.checked;loadPage()};
 }
 
 // ============================================================================

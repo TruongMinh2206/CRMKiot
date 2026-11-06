@@ -249,6 +249,8 @@ def sync_all(full=False):
             counts["invoices"] += _sync_invoices(k, last_modified_from=last_from)
             state["progress"] = "Đơn hàng"
             counts["orders"] += _sync_orders(k, last_modified_from=last_from)
+            state["progress"] = "Trả hàng"
+            _sync_returns(k, last_modified_from=last_from)
         else:
             # Lần đầu: tải theo từng tháng, lưu sau mỗi tháng để có thể chạy tiếp nếu đứt kết nối
             for wf, wt in _month_windows(config.SYNC_HISTORY_DAYS):
@@ -259,6 +261,8 @@ def sync_all(full=False):
                 counts["invoices"] += _sync_invoices(k, from_date=wf, to_date=wt)
                 state["progress"] = f"Đơn hàng tháng {wf[:7]}"
                 counts["orders"] += _sync_orders(k, from_date=wf, to_date=wt)
+                state["progress"] = f"Trả hàng tháng {wf[:7]}"
+                _sync_returns(k, from_date=wf, to_date=wt)
                 if wt < _fmt_kiot(datetime.now() - timedelta(days=1)):
                     db.set_meta(key, "1")
 
@@ -332,6 +336,34 @@ def _sync_invoices(k, **kw):
             if n % 200 == 0:
                 con.commit()
                 state["progress"] = state["progress"].split(" (")[0] + f" ({n})"
+        con.commit()
+    finally:
+        con.close()
+    return n
+
+
+def _sync_returns(k, **kw):
+    n = 0
+    con = db.connect()
+    try:
+        for v in k.returns(**kw):
+            n += 1
+            con.execute("""INSERT OR REPLACE INTO returns(id,code,return_date,invoice_id,branch_id,customer_id,customer_code,
+                customer_name,sold_by_name,total,return_fee,status,status_value,description,created_date)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (v["id"], v.get("code"), _d(v.get("returnDate")), v.get("invoiceId"), v.get("branchId"),
+                         v.get("customerId"), v.get("customerCode"), v.get("customerName"), v.get("soldByName"),
+                         _m(v.get("returnTotal")), _m(v.get("returnFee")), v.get("status"), v.get("statusValue"),
+                         v.get("description"), _d(v.get("createdDate"))))
+            con.execute("DELETE FROM return_details WHERE return_id=?", (v["id"],))
+            for i, d in enumerate(v.get("returnDetails") or []):
+                con.execute("""INSERT INTO return_details(return_id,line,product_id,product_code,product_name,
+                    quantity,price,sub_total,trade_mark) VALUES(?,?,?,?,?,?,?,?,?)""",
+                            (v["id"], i, d.get("productId"), d.get("productCode"), d.get("productName"),
+                             d.get("quantity"), _m(d.get("price")),
+                             _m((d.get("price") or 0) * (d.get("quantity") or 0)), d.get("tradeMarkName")))
+            if n % 200 == 0:
+                con.commit()
         con.commit()
     finally:
         con.close()

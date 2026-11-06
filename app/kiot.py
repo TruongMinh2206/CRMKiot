@@ -112,6 +112,16 @@ class KiotClient:
             p["toPurchaseDate"] = to_date
         return self.iter_pages("invoices", p)
 
+    def returns(self, from_date=None, to_date=None, last_modified_from=None):
+        p = {"includeTotal": "true", "orderBy": "modifiedDate", "orderDirection": "ASC"}
+        if last_modified_from:
+            p["lastModifiedFrom"] = last_modified_from
+        if from_date:
+            p["fromReturnDate"] = from_date
+        if to_date:
+            p["toReturnDate"] = to_date
+        return self.iter_pages("returns", p)
+
     def orders(self, from_date=None, to_date=None, last_modified_from=None):
         p = {"includeTotal": "true", "includePayment": "true", "includeOrderDelivery": "true",
              "orderBy": "modifiedDate", "orderDirection": "ASC"}
