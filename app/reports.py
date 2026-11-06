@@ -553,5 +553,6 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         g["new_customer_pct"] = (round(g["new_customer_rev"] / g["new_customer_target"] * 100, 1)
                                  if g["new_customer_target"] else None)
     return {"basis": basis, "ym": ym, "from": from_d, "to": to_d, "rows": out,
-            "teams": sorted(teams.values(), key=lambda g: -g["total"]), "cats": CAT_KEYS,
+            "teams": sorted([g for g in teams.values() if g["total"] or g["target"] or g["returns"]],
+                            key=lambda g: -g["total"]), "cats": CAT_KEYS,
             "alloc": alloc, "weeks": weeks}
