@@ -442,8 +442,10 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         LEFT JOIN invoices oi ON oi.id=r.invoice_id
         WHERE COALESCE(c.is_boss,0)=0 AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
         rets[r["s"]] = {"ret_sale": r["ret_sale"] or 0, "ret_boss": 0, "ret_n": r["ret_n"]}
-    for r in db.rows(f"""SELECT {bx} s, SUM(r.total) ret_boss, COUNT(*) ret_n
+    brx = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')" if basis == "invoice" else CUST_EXPR)
+    for r in db.rows(f"""SELECT {brx} s, SUM(r.total) ret_boss, COUNT(*) ret_n
         FROM returns r JOIN customers c ON c.id=r.customer_id
+        LEFT JOIN invoices oi ON oi.id=r.invoice_id
         WHERE COALESCE(c.is_boss,0)=1 AND COALESCE(c.boss_no_kpi,0)=0
           AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
         d0 = rets.setdefault(r["s"], {"ret_sale": 0, "ret_boss": 0, "ret_n": 0})
