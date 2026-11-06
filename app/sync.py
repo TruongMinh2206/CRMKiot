@@ -244,6 +244,13 @@ def sync_all(full=False):
 
         db.set_meta("trade_mark_filled", "1")
 
+        # Lần đầu có tính năng trả hàng: tải bù toàn bộ lịch sử
+        if db.get_meta("returns_filled") != "1":
+            for wf, wt in _month_windows(config.SYNC_HISTORY_DAYS):
+                state["progress"] = f"Trả hàng tháng {wf[:7]}"
+                _sync_returns(k, from_date=wf, to_date=wt)
+            db.set_meta("returns_filled", "1")
+
         state["progress"] = "Hoá đơn"
         if last_from:
             counts["invoices"] += _sync_invoices(k, last_modified_from=last_from)

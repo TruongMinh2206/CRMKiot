@@ -11,7 +11,8 @@ from . import db
 
 log = logging.getLogger("backup")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads"]
+TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads", "teams"]
+SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis"]
 SNAPSHOT_EVERY_HOURS = int(os.getenv("SNAPSHOT_EVERY_HOURS", "6"))
 _lock = threading.Lock()
 _db_lock = threading.Lock()
@@ -44,6 +45,11 @@ def save(tables=None):
                     payload = {t: [dict(r) for r in con.execute(f"SELECT * FROM {t}").fetchall()] for t in tables}
                     payload["customer_manual"] = [dict(r) for r in con.execute(
                         "SELECT id, sale_manual FROM customers WHERE sale_manual IS NOT NULL AND sale_manual<>''").fetchall()]
+                    payload["customer_boss"] = [dict(r) for r in con.execute(
+                        "SELECT id FROM customers WHERE COALESCE(is_boss,0)=1").fetchall()]
+                    q = ",".join("?" * len(SETTING_KEYS))
+                    payload["settings"] = [dict(r) for r in con.execute(
+                        f"SELECT key, value FROM meta WHERE key IN ({q})", SETTING_KEYS).fetchall()]
                 pg = _pg()
                 cur = pg.cursor()
                 _ensure(cur)
@@ -88,6 +94,11 @@ def restore():
                 keys = [k for k in r if k in cols]
                 con.execute(f"INSERT OR IGNORE INTO {t}({','.join(keys)}) VALUES({','.join('?' * len(keys))})", [r[k] for k in keys])
             log.info("restored %s: %d rows", t, len(rows))
+        for r in (json.loads(data["settings"]) if isinstance(data.get("settings"), str) else (data.get("settings") or [])):
+            if not con.execute("SELECT 1 FROM meta WHERE key=?", (r["key"],)).fetchone():
+                con.execute("INSERT INTO meta(key,value) VALUES(?,?)", (r["key"], r["value"]))
+        for r in (json.loads(data["customer_boss"]) if isinstance(data.get("customer_boss"), str) else (data.get("customer_boss") or [])):
+            con.execute("UPDATE customers SET is_boss=1 WHERE id=?", (r["id"],))
         cm = data.get("customer_manual") or []
         if isinstance(cm, str):
             cm = json.loads(cm)
