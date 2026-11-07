@@ -386,9 +386,9 @@ async function settings(){
       <label class="small"><input type="checkbox" id="gRep"> ghi đè nếu tab đã có</label>
       <button class="btn primary" id="bGsGo">Xuất sang Google Sheet</button><span id="gMsg" class="small muted"></span></div></div>`);
   $('#bGsSave').onclick=async()=>{const b={gsheet_id:$('#gId').value,gsheet_tpl:$('#gTpl').value};const sa=$('#gSa').value.trim();if(sa)b.sa=sa;
-    try{await api('/gsheet',{method:'POST',body:JSON.stringify(b)});toast('Đã lưu');loadPage()}catch(e){toast(String(e.message||e))}};
+    try{await api('/gsheet',{method:'POST',body:b});toast('Đã lưu');loadPage()}catch(e){toast(String(e.message||e))}};
   $('#bGsGo').onclick=async()=>{const b=$('#bGsGo');b.disabled=true;b.textContent='Đang xuất…';$('#gMsg').textContent='';
-    try{const r=await api('/gsheet/export',{method:'POST',body:JSON.stringify({ym:$('#gYm').value,replace:$('#gRep').checked})});
+    try{const r=await api('/gsheet/export',{method:'POST',body:{ym:$('#gYm').value,replace:$('#gRep').checked}});
       $('#gMsg').innerHTML=`Đã tạo tab <b>${esc(r.title)}</b> — <a href="${r.url}" target="_blank">mở sheet</a>`;toast('Đã xuất sang Google Sheet')}
     catch(e){$('#gMsg').innerHTML='<span class="tag bad">'+esc(String(e.message||e))+'</span>'}
     finally{b.disabled=false;b.textContent='Xuất sang Google Sheet'}};
