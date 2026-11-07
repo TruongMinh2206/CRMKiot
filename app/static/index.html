@@ -418,12 +418,13 @@ async function board(){
   const cell=(v,p)=>`<td class="r">${money(v)}${p!=null?`<br><span class="small" style="color:${col(p)}">${p}%</span>`:''}</td>`;
   const byTeam={};d.rows.forEach(r=>(byTeam[r.team]=byTeam[r.team]||[]).push(r));
   const W=d.weeks||[];
-  const head=`<tr><th>Team / Sale</th><th class="r">Mục tiêu</th><th class="r">DS khách sale</th>${C.map(c=>`<th class="r">${c[1]}<br><span class="small muted">${d.alloc[c[0]]||0}%</span></th>`).join('')}<th class="r">Bán cho KH mới<br><span class="small muted">${d.alloc.new_customer||0}%</span></th><th class="r">DS khách sếp</th>${W.map(w=>`<th class="r">Tuần ${w.week}</th>`).join('')}<th class="r">Hàng trả</th><th class="r">TỔNG</th><th class="r">% KPI</th><th>Tình trạng</th></tr>`;
+  const head=`<tr><th>Team / Sale</th><th class="r">Mục tiêu</th><th class="r">DS khách sale</th>${C.map(c=>`<th class="r">${c[1]}<br><span class="small muted">${d.alloc[c[0]]||0}%</span></th>`).join('')}<th class="r">Bán cho KH mới<br><span class="small muted">${d.alloc.new_customer||0}%</span></th><th class="r">DS khách sếp</th>${W.map(w=>`<th class="r">Tuần ${w.week}</th>`).join('')}<th class="r">Hàng trả</th><th class="r">HĐ huỷ</th><th class="r">TỔNG</th><th class="r">% KPI</th><th>Tình trạng</th></tr>`;
   const line=(r,isTeam)=>`<tr ${isTeam?'style="background:var(--brand-2);font-weight:600"':''}><td ${isTeam?'':'style="padding-left:22px"'}>${isTeam?'TỔNG TEAM '+esc(r.team).toUpperCase():esc(r.sale)}</td>
     <td class="r ${isTeam?'':'muted'}">${money(r.target)}</td><td class="r">${money(r.rev_sale)}</td>
     ${C.map(c=>cell(r[c[0]],r[c[0]+'_pct'])).join('')}${cell(r.new_customer_rev,r.new_customer_pct)}
     <td class="r">${money(r.rev_boss)}</td>${(r.weeks||[]).map(v=>`<td class="r">${money(v)}</td>`).join('')}
     <td class="r" style="color:${r.returns?'var(--bad)':'var(--muted)'}">${r.returns?'−'+fmt(r.returns):'–'}</td>
+    <td class="r" title="Hoá đơn đã huỷ trên KiotViet — không tính vào doanh số">${r.cancelled?`<span class="muted">${fmt(r.cancelled)}</span><br><span class="small muted">${r.cancelled_n} HĐ</span>`:'<span class="muted">–</span>'}</td>
     <td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td></tr>`;
   const body=d.teams.map(g=>line(g,true)+(byTeam[g.team]||[]).map(r=>line(r,false)).join('')).join('');
   const T=k=>d.rows.reduce((a,r)=>a+(r[k]||0),0);
@@ -432,9 +433,16 @@ async function board(){
    <div class="card tile"><h3>Mục tiêu</h3><div class="v">${fmtK(T('target'))}</div><div class="d">${T('target')?'đạt '+Math.round(T('total')/T('target')*100)+'%':'chưa đặt chỉ tiêu'} · <a href="#kpi">đặt</a></div></div>
    <div class="card tile"><h3>Độc quyền (mới + cũ)</h3><div class="v">${fmtK(T('excl_new')+T('excl_old'))}</div><div class="d">mới ${fmtK(T('excl_new'))} · cũ ${fmtK(T('excl_old'))}</div></div>
    <div class="card tile"><h3>Khách sếp</h3><div class="v">${fmtK(T('rev_boss'))}</div><div class="d">khách sale ${fmtK(T('rev_sale'))}</div></div></div>
-  <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='accounting'?'khách sale theo người bán trên HĐ · khách sếp theo sale phụ trách':d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'} · đã trừ hàng trả</span></h3>
+  <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='accounting'?'khách sale theo người bán trên HĐ · khách sếp theo sale phụ trách':d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'} · khách sếp đã trừ hàng trả, khách sale tính gộp</span></h3>
    <div class="tablewrap"><table id="t"><thead>${head}</thead><tbody>${body||'<tr><td colspan="16" class="empty">Chưa có dữ liệu</td></tr>'}</tbody></table></div>
+   <p class="small muted">Cột <b>HĐ huỷ</b> là hoá đơn đã huỷ trên KiotViet trong kỳ — CRM không tính vào doanh số. Nếu bảng kế toán gõ tay cao hơn CRM, hãy đối chiếu cột này trước: hoá đơn bị huỷ sau khi họ điền số là nguyên nhân thường gặp nhất.</p>
    <p class="small muted">% dưới mỗi nhóm hàng là mức đạt so với phần chỉ tiêu phân bổ cho nhóm đó (sửa tỷ lệ trong Cài đặt). Cột nhóm hàng và "bán cho khách mới" tính trên phần khách sale; "khách mới" theo dõi riêng, không cộng vào tổng.</p></div>`;
+  const cl=d.cancelled_list||[];
+  if(cl.length) m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Hoá đơn đã huỷ trong kỳ <span class="x">${cl.length} hoá đơn · ${fmtK(cl.reduce((a,r)=>a+r.total,0))}</span></h3>
+    <p class="small muted">Những hoá đơn này đã bị huỷ trên KiotViet nên CRM không tính vào doanh số. Dùng danh sách này để đối chiếu khi bảng gõ tay lệch so với CRM.</p>
+    <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Mã HĐ</th><th>Ngày</th><th>Khách hàng</th><th>Người bán</th><th>Nhóm</th><th class="r">Giá trị</th></tr></thead><tbody>
+    ${cl.map(r=>`<tr><td>${esc(r.code)}</td><td>${dmy(r.d)}</td><td>${esc(r.customer)}</td><td>${esc(r.sale||'')}</td><td>${r.is_boss?'<span class="tag">Khách sếp</span>':'Khách sale'}</td><td class="r">${fmt(r.total)}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
   bindTopbar('board');
   $('#fBasis').onchange=async e=>{state.basis=e.target.value;await api('/teams',{method:'POST',body:{basis:e.target.value}});loadPage()};
   $('#fWeek').onchange=e=>{state.weekly=e.target.checked;loadPage()};
