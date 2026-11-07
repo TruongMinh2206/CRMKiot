@@ -52,8 +52,12 @@ def status():
 
 
 def _token(info):
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import Request
+    try:
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+    except ImportError as e:
+        raise ConfigError(f"Thiếu thư viện google-auth trên máy chủ ({e}). "
+                          "Cần deploy lại sau khi thêm google-auth vào requirements.txt.")
     try:
         cred = service_account.Credentials.from_service_account_info(info, scopes=SCOPE)
         cred.refresh(Request())
@@ -85,6 +89,16 @@ def _batch(c, sid, requests):
 
 def export(ym, basis="accounting", title=None, replace=False):
     """Tạo tab mới cho tháng ym từ tab mẫu rồi điền số. Trả về tên tab và link."""
+    try:
+        return _export(ym, basis, title, replace)
+    except ConfigError:
+        raise
+    except Exception as e:                      # đừng để lỗi lạ thành 500 trắng màn hình
+        log.exception("xuất Google Sheet thất bại")
+        raise ConfigError(f"{type(e).__name__}: {e}")
+
+
+def _export(ym, basis, title, replace):
     info, sid, tpl = config()
     tok = _token(info)
     title = title or f"T{int(ym[5:7])}.{ym[:4]} (CRM)"
@@ -93,7 +107,11 @@ def export(ym, basis="accounting", title=None, replace=False):
         if not tpl:
             raise ConfigError("Chưa chọn tab mẫu trong Cài đặt.")
         if tpl not in tabs:
-            raise ConfigError(f"Không thấy tab mẫu \"{tpl}\" trong file.")
+            raise ConfigError(f"Không thấy tab mẫu \"{tpl}\" trong file. "
+                              f"Các tab đang có: {', '.join(sorted(tabs)) or '(không có)'}")
+        if title == tpl:
+            raise ConfigError(f"Tab đích trùng tên tab mẫu (\"{tpl}\"). Đổi tên tab mẫu "
+                              "thành tên riêng, ví dụ MẪU, rồi cập nhật lại ô Tab mẫu.")
         if title in tabs:
             if not replace:
                 raise ConfigError(f"Tab \"{title}\" đã tồn tại. Chọn ghi đè hoặc đổi tên.")
