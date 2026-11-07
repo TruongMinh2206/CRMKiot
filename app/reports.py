@@ -453,6 +453,18 @@ def _weeks(from_d, to_d):
     return out
 
 
+def cancelled_invoices(from_d, to_d, limit=500):
+    """Hoá đơn bị huỷ trong kỳ. CRM không tính vào doanh số; bảng gõ tay thì
+    hay còn sót nếu hoá đơn bị huỷ sau khi đã điền số."""
+    f, t, _, _ = _period(from_d, to_d)
+    return db.rows("""SELECT i.code, substr(i.purchase_date,1,10) d, i.sold_by_name sale,
+        COALESCE(c.name,'') customer, COALESCE(c.is_boss,0) is_boss,
+        COALESCE(i.net_total, i.total) total
+        FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        WHERE i.status = 2 AND i.purchase_date BETWEEN ? AND ?
+        ORDER BY total DESC LIMIT ?""", (f, t, limit))
+
+
 def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     """Bảng doanh số: theo sale/team, tách khách sếp, tách nhóm hàng, so chỉ tiêu.
 
@@ -504,6 +516,20 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         d0["ret_n"] += r["ret_n"]
     for v in rets.values():
         v["ret_total"] = v["ret_sale"] + v["ret_boss"]
+
+    # hoá đơn đã huỷ: không tính vào doanh số, nhưng phải hiện ra để đối chiếu
+    # với bảng kế toán gõ tay (hoá đơn huỷ sau khi gõ là nguồn lệch thường gặp)
+    canc = {}
+    for r in db.rows(f"""SELECT {sx} s, COUNT(*) n, SUM(COALESCE(i.net_total, i.total)) v
+        FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
+        WHERE i.status = 2 AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        canc[r["s"]] = {"cancelled": r["v"] or 0, "cancelled_n": r["n"]}
+    for r in db.rows(f"""SELECT {bx} s, COUNT(*) n, SUM(COALESCE(i.net_total, i.total)) v
+        FROM invoices i JOIN customers c ON c.id=i.customer_id
+        WHERE i.status = 2 AND COALESCE(c.is_boss,0)=1 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
+        d0 = canc.setdefault(r["s"], {"cancelled": 0, "cancelled_n": 0})
+        d0["cancelled"] += r["v"] or 0
+        d0["cancelled_n"] += r["n"]
 
     prev = {}
     for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
@@ -564,7 +590,9 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
                "returns_n": rr.get("ret_n", 0) or 0,
                "rev_sale": rev_sale, "rev_boss": rev_boss, "total": rev_sale + rev_boss,
                "invoices": tt.get("invoices", 0) or 0, "customers": tt.get("customers", 0) or 0,
-               "prev": prev.get(s, 0) or 0, "new_customer_rev": newc.get(s, 0) or 0, "target": tg}
+               "prev": prev.get(s, 0) or 0, "new_customer_rev": newc.get(s, 0) or 0, "target": tg,
+               "cancelled": (canc.get(s) or {}).get("cancelled", 0),
+               "cancelled_n": (canc.get(s) or {}).get("cancelled_n", 0)}
         for k, _ in CAT_KEYS:
             row[k] = c.get(k, 0)
             row[k + "_target"] = round(tg * alloc.get(k, 0) / 100)
@@ -577,12 +605,12 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         row["growth"] = _growth(row["total"], row["prev"])
         if weekly:
             row["weeks"] = [wk.get(s, {}).get(w["week"], 0) for w in weeks]
-        if row["gross"] or row["returns"] or tg:
+        if row["gross"] or row["returns"] or row["cancelled"] or tg:
             out.append(row)
     out.sort(key=lambda r: (r["team"], -r["total"]))
 
     SUMK = ["target", "rev_sale", "rev_boss", "total", "prev", "new_customer_rev", "gross", "returns",
-            "new_customer_target"] + [k for k, _ in CAT_KEYS] + [k + "_target" for k, _ in CAT_KEYS]
+            "cancelled", "cancelled_n", "new_customer_target"] + [k for k, _ in CAT_KEYS] + [k + "_target" for k, _ in CAT_KEYS]
     teams = {}
     for r in out:
         g = teams.setdefault(r["team"], {"team": r["team"], **{k: 0 for k in SUMK},

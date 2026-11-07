@@ -338,10 +338,12 @@ def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias
     t = to_d or today.isoformat()
     basis = basis or db.get_meta("report_basis") or "customer"
     b = reports.sales_board(f, t, basis, weekly=bool(weekly))
+    b["cancelled_list"] = reports.cancelled_invoices(f, t)
     if user["role"] == "sale":
         me = user.get("sale_name")
         b["rows"] = [r for r in b["rows"] if r["sale"] == me]
         b["teams"] = [g for g in b["teams"] if any(r["team"] == g["team"] for r in b["rows"])]
+        b["cancelled_list"] = [r for r in b["cancelled_list"] if r["sale"] == me]
     return b
 
 
