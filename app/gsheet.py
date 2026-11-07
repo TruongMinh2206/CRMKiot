@@ -10,6 +10,7 @@ Thiết lập trong Cài đặt:
 """
 import json
 import logging
+import time
 
 import httpx
 
@@ -17,6 +18,7 @@ from . import db, sheet_export, sheet_template
 
 log = logging.getLogger("gsheet")
 API = "https://sheets.googleapis.com/v4/spreadsheets"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
@@ -52,18 +54,31 @@ def status():
 
 
 def _token(info):
+    """Đổi khoá service account lấy access token.
+
+    Tự ký JWT rồi gọi oauth2 bằng httpx; dùng transport sẵn có của google-auth
+    sẽ kéo theo thư viện requests mà dự án không cài.
+    """
     try:
-        from google.oauth2 import service_account
-        from google.auth.transport.requests import Request
+        from google.auth import crypt, jwt
     except ImportError as e:
-        raise ConfigError(f"Thiếu thư viện google-auth trên máy chủ ({e}). "
-                          "Cần deploy lại sau khi thêm google-auth vào requirements.txt.")
+        raise ConfigError(f"Thiếu thư viện google-auth trên máy chủ ({e}).")
+    now = int(time.time())
     try:
-        cred = service_account.Credentials.from_service_account_info(info, scopes=SCOPE)
-        cred.refresh(Request())
+        signer = crypt.RSASigner.from_service_account_info(info)
+        assertion = jwt.encode(signer, {
+            "iss": info["client_email"], "scope": " ".join(SCOPE),
+            "aud": TOKEN_URL, "iat": now, "exp": now + 3600,
+        })
     except Exception as e:
-        raise ConfigError(f"Không lấy được token Google: {e}")
-    return cred.token
+        raise ConfigError(f"Khoá service account không hợp lệ: {e}")
+    if isinstance(assertion, bytes):
+        assertion = assertion.decode()
+    r = httpx.post(TOKEN_URL, timeout=60, data={
+        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": assertion})
+    if r.status_code >= 400:
+        raise ConfigError(f"Google từ chối cấp token: {r.text[:200]}")
+    return r.json()["access_token"]
 
 
 def _client(tok):
