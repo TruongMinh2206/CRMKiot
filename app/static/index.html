@@ -428,7 +428,8 @@ async function board(){
     <td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td></tr>`;
   const body=d.teams.map(g=>line(g,true)+(byTeam[g.team]||[]).map(r=>line(r,false)).join('')).join('');
   const T=k=>d.rows.reduce((a,r)=>a+(r[k]||0),0);
-  m.innerHTML=topbar('Bảng doanh số',{sale:false,exportKey:'board',extra:`<select class="f" id="fBasis"><option value="accounting" ${d.basis==='accounting'?'selected':''}>Như kế toán đang tính (khuyến nghị)</option><option value="customer" ${d.basis==='customer'?'selected':''}>Tất cả theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tất cả theo người bán trên hoá đơn</option></select><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="fWeek" ${state.weekly?'checked':''}> theo tuần</label>`})+
+  const gym=state.from.slice(0,7);
+  m.innerHTML=topbar('Bảng doanh số',{sale:false,extra:`<select class="f" id="fBasis"><option value="accounting" ${d.basis==='accounting'?'selected':''}>Như kế toán đang tính (khuyến nghị)</option><option value="customer" ${d.basis==='customer'?'selected':''}>Tất cả theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tất cả theo người bán trên hoá đơn</option></select><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="fWeek" ${state.weekly?'checked':''}> theo tuần</label><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="gRepB"> ghi đè</label><button class="btn" id="bGsB">⬇ Google Sheet ${gym.slice(5)}/${gym.slice(0,4)}</button>`})+
   `<div class="grid g4"><div class="card tile"><h3>Doanh số thực</h3><div class="v">${fmtK(T('total'))}</div><div class="d">bán ${fmtK(T('gross'))} − trả ${fmtK(T('returns'))}</div></div>
    <div class="card tile"><h3>Mục tiêu</h3><div class="v">${fmtK(T('target'))}</div><div class="d">${T('target')?'đạt '+Math.round(T('total')/T('target')*100)+'%':'chưa đặt chỉ tiêu'} · <a href="#kpi">đặt</a></div></div>
    <div class="card tile"><h3>Độc quyền (mới + cũ)</h3><div class="v">${fmtK(T('excl_new')+T('excl_old'))}</div><div class="d">mới ${fmtK(T('excl_new'))} · cũ ${fmtK(T('excl_old'))}</div></div>
@@ -443,7 +444,12 @@ async function board(){
     <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Mã HĐ</th><th>Ngày</th><th>Khách hàng</th><th>Người bán</th><th>Nhóm</th><th class="r">Giá trị</th></tr></thead><tbody>
     ${cl.map(r=>`<tr><td>${esc(r.code)}</td><td>${dmy(r.d)}</td><td>${esc(r.customer)}</td><td>${esc(r.sale||'')}</td><td>${r.is_boss?'<span class="tag">Khách sếp</span>':'Khách sale'}</td><td class="r">${fmt(r.total)}</td></tr>`).join('')}
     </tbody></table></div></div>`);
-  bindTopbar('board');
+  bindTopbar(null);
+  $('#bGsB').onclick=async()=>{const bt=$('#bGsB');const old=bt.textContent;bt.disabled=true;bt.textContent='Đang xuất…';
+    try{const r=await api('/gsheet/export',{method:'POST',body:{ym:gym,replace:$('#gRepB').checked}});
+      toast('Đã xuất tab '+r.title);window.open(r.url,'_blank')}
+    catch(e){toast(String(e.message||e))}
+    finally{bt.disabled=false;bt.textContent=old}};
   $('#fBasis').onchange=async e=>{state.basis=e.target.value;await api('/teams',{method:'POST',body:{basis:e.target.value}});loadPage()};
   $('#fWeek').onchange=e=>{state.weekly=e.target.checked;loadPage()};
 }
