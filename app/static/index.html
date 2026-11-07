@@ -372,6 +372,26 @@ async function settings(){
   $('#bBoss').onclick=async()=>{const r=await api('/boss',{method:'POST',body:{codes:$('#bossT').value,reset:$('#bossReset').checked}});toast('Đã đánh dấu '+r.updated+' khách');loadPage()};
   $('#bAlloc').onclick=async()=>{const mp={};document.querySelectorAll('.alIn').forEach(i=>mp[i.dataset.k]=+i.value||0);await api('/catmap',{method:'POST',body:{alloc:mp}});toast('Đã lưu phân bổ')};
   $('#bCat').onclick=async()=>{const mp={};document.querySelectorAll('.cmIn').forEach(sel=>{if(sel.value!=='normal')mp[sel.dataset.tm]=sel.value});await api('/catmap',{method:'POST',body:{map:mp}});toast('Đã lưu nhóm hàng')};
+  const gs=await api('/gsheet');
+  const ymOpts=(()=>{const o=[];const d=new Date();for(let i=0;i<14;i++){const x=new Date(d.getFullYear(),d.getMonth()-i,1);o.push(x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0'))}return o})();
+  m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Xuất bảng doanh số sang Google Sheet <span class="x">tạo tab mới theo tháng, giữ nguyên bố cục mẫu</span></h3>
+    <p class="small muted">CRM nhân bản tab mẫu rồi điền số của tháng vào. Tab mẫu không bị đụng tới. Cần tạo một service account Google và chia sẻ file Google Sheet cho email của nó với quyền <b>Editor</b>.</p>
+    <div class="kv"><b>Trạng thái</b><span>${gs.configured?'<span class="tag good">Đã cấu hình</span>':'<span class="tag warn">Chưa cấu hình</span>'}</span>
+      <b>Service account</b><span class="small">${gs.client_email?esc(gs.client_email):'<span class="muted">chưa nạp file JSON</span>'}</span>
+      <b>ID file Sheet</b><span><input class="f" id="gId" value="${esc(gs.sheet_id)}" placeholder="phần giữa /d/ và /edit trên URL" style="width:360px"></span>
+      <b>Tab mẫu</b><span><input class="f" id="gTpl" value="${esc(gs.template)}" placeholder="vd T10.2026 (CRM)" style="width:240px"></span>
+      <b>File JSON</b><span><textarea id="gSa" placeholder="Dán toàn bộ nội dung file service account (.json) — để trống nếu không đổi" style="width:100%;height:70px;font-family:monospace;font-size:11px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"></textarea></span></div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="bGsSave">Lưu thiết lập</button>
+      <select class="f" id="gYm">${ymOpts.map(x=>`<option value="${x}">Tháng ${x.slice(5)}/${x.slice(0,4)}</option>`).join('')}</select>
+      <label class="small"><input type="checkbox" id="gRep"> ghi đè nếu tab đã có</label>
+      <button class="btn primary" id="bGsGo">Xuất sang Google Sheet</button><span id="gMsg" class="small muted"></span></div></div>`);
+  $('#bGsSave').onclick=async()=>{const b={gsheet_id:$('#gId').value,gsheet_tpl:$('#gTpl').value};const sa=$('#gSa').value.trim();if(sa)b.sa=sa;
+    try{await api('/gsheet',{method:'POST',body:JSON.stringify(b)});toast('Đã lưu');loadPage()}catch(e){toast(String(e.message||e))}};
+  $('#bGsGo').onclick=async()=>{const b=$('#bGsGo');b.disabled=true;b.textContent='Đang xuất…';$('#gMsg').textContent='';
+    try{const r=await api('/gsheet/export',{method:'POST',body:JSON.stringify({ym:$('#gYm').value,replace:$('#gRep').checked})});
+      $('#gMsg').innerHTML=`Đã tạo tab <b>${esc(r.title)}</b> — <a href="${r.url}" target="_blank">mở sheet</a>`;toast('Đã xuất sang Google Sheet')}
+    catch(e){$('#gMsg').innerHTML='<span class="tag bad">'+esc(String(e.message||e))+'</span>'}
+    finally{b.disabled=false;b.textContent='Xuất sang Google Sheet'}};
   const bs=$('#bSnap');if(bs)bs.onclick=async()=>{bs.textContent='Đang lưu…';bs.disabled=true;await api('/snapshot',{method:'POST'});setTimeout(async()=>{toast('Đã sao lưu');loadPage()},6000)};
   $('#bSet').onclick=async()=>{const b=$('#bSet');b.textContent='Đang tính lại…';b.disabled=true;const r=await api('/settings',{method:'POST',body:{sale_source:$('#sSrc').value,churn_days:$('#sChurn').value}});toast(r.pending?'Đã lưu — sẽ áp dụng khi đồng bộ xong':'Đang tính lại ở chế độ nền…');refreshSync();b.textContent='Lưu & tính lại';b.disabled=false};
   $('#bSync').onclick=async()=>{await api('/sync',{method:'POST'});toast('Đã bắt đầu đồng bộ');refreshSync()};
