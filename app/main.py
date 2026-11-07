@@ -152,6 +152,14 @@ async def gsheet_config(request: Request, user=Depends(current_user)):
     for k in ("gsheet_id", "gsheet_tpl"):
         if b.get(k) is not None:
             db.set_meta(k, str(b[k]).strip())
+    if b.get("sale_merge") is not None:
+        # {"Sales Trang": "Sales Linh Bé"} — gộp doanh số người bán phụ vào sale chính
+        try:
+            m = json.loads(b["sale_merge"]) if isinstance(b["sale_merge"], str) else b["sale_merge"]
+            assert isinstance(m, dict) and all(isinstance(v, str) for v in m.values())
+        except Exception:
+            raise HTTPException(400, "Thiết lập gộp người bán không hợp lệ")
+        db.set_meta("sale_merge", json.dumps(m, ensure_ascii=False))
     return gsheet.status()
 
 
