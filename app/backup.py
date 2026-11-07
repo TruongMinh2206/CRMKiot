@@ -12,7 +12,8 @@ from . import db
 log = logging.getLogger("backup")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads", "teams"]
-SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis"]
+SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis",
+                "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl"]
 SNAPSHOT_EVERY_HOURS = int(os.getenv("SNAPSHOT_EVERY_HOURS", "6"))
 _lock = threading.Lock()
 _db_lock = threading.Lock()

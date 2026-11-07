@@ -5,6 +5,10 @@ from . import db, config
 INV_OK = "i.status = 1"  # hoá đơn hoàn thành
 REV = "COALESCE(i.net_total, i.total)"  # tiền hàng (không gồm phụ thu) — khớp báo cáo KiotViet
 
+# Hàng trả phải trừ khỏi mọi con số doanh số, nếu không báo cáo sẽ cao hơn KiotViet.
+RET_BY_CUST = "SELECT r.customer_id cid, SUM(r.total) v FROM returns r WHERE r.return_date BETWEEN ? AND ? GROUP BY 1"
+RET_BY_CUST_ALL = "SELECT r.customer_id cid, SUM(r.total) v FROM returns r GROUP BY 1"
+
 
 def _period(from_d, to_d):
     f = datetime.fromisoformat(from_d)
@@ -40,6 +44,8 @@ def customers_by_sale(from_d, to_d):
     WITH c2 AS (SELECT c.id, {sale_expr()} AS sale, c.created_date FROM customers c WHERE c.is_active=1),
     cur AS (SELECT i.customer_id, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
     prev AS (SELECT i.customer_id, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1),
+    curr AS ({RET_BY_CUST}),
+    prevr AS ({RET_BY_CUST}),
     lastbuy AS (SELECT i.customer_id, MAX(i.purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1),
     firstbuy AS (SELECT i.customer_id, MIN(i.purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
     SELECT c2.sale,
@@ -52,12 +58,15 @@ def customers_by_sale(from_d, to_d):
       SUM(CASE WHEN lastbuy.d IS NOT NULL AND lastbuy.d < ? THEN 1 ELSE 0 END) AS churned,
       SUM(CASE WHEN prev.customer_id IS NOT NULL AND cur.customer_id IS NULL THEN 1 ELSE 0 END) AS lost_vs_prev,
       SUM(CASE WHEN prev.customer_id IS NULL AND cur.customer_id IS NOT NULL THEN 1 ELSE 0 END) AS gained_vs_prev,
-      COALESCE(SUM(cur.rev),0) AS revenue, COALESCE(SUM(prev.rev),0) AS revenue_prev,
+      COALESCE(SUM(cur.rev),0) AS revenue,
+      COALESCE(SUM(prev.rev),0) AS revenue_prev,
+      COALESCE(SUM(curr.v),0) AS returned,
       COALESCE(SUM(cur.n),0) AS invoices, COALESCE(SUM(prev.n),0) AS invoices_prev
     FROM c2 LEFT JOIN cur ON cur.customer_id=c2.id LEFT JOIN prev ON prev.customer_id=c2.id
+      LEFT JOIN curr ON curr.cid=c2.id LEFT JOIN prevr ON prevr.cid=c2.id
       LEFT JOIN lastbuy ON lastbuy.customer_id=c2.id LEFT JOIN firstbuy ON firstbuy.customer_id=c2.id
     GROUP BY c2.sale ORDER BY revenue DESC"""
-    rows = db.rows(sql, (f, t, pf, pt, f, t, pf, pt, f, t, churn))
+    rows = db.rows(sql, (f, t, pf, pt, f, t, pf, pt, f, t, pf, pt, f, t, churn))
     for r in rows:
         r["revenue_growth"] = _growth(r["revenue"], r["revenue_prev"])
         r["customer_growth"] = _growth(r["buying_customers"], r["buying_customers_prev"])
@@ -92,6 +101,11 @@ def customer_trend(months=12, sale=None):
       (SELECT COUNT(*) FROM buys b1 WHERE b1.ym = m.ym AND EXISTS (SELECT 1 FROM buys b2 WHERE b2.customer_id=b1.customer_id AND b2.ym < b1.ym)) AS returning_customers
     FROM m WHERE m.ym <= strftime('%Y-%m','now') ORDER BY m.ym"""
     rows = db.rows(sql, sp + (start, start))
+    ret = {r["ym"]: r["v"] for r in db.rows(
+        f"""SELECT substr(r.return_date,1,7) ym, SUM(r.total) v FROM returns r
+            JOIN customers c ON c.id=r.customer_id WHERE 1=1 {sf} GROUP BY 1""", sp)}
+    for r in rows:
+        r["returned"] = ret.get(r["ym"], 0)
     # KH ngừng mua trong tháng m = khách có lần mua cuối + CHURN_DAYS rơi vào tháng m (và đã thực sự quá hạn tính đến hôm nay)
     cutoff = (date.today() - timedelta(days=config.CHURN_DAYS)).isoformat()
     lost = {}
@@ -117,16 +131,21 @@ def customer_revenue(from_d, to_d, sale=None, limit=4000):
     sql = f"""
     WITH cur AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
     prev AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE {INV_OK} AND purchase_date BETWEEN ? AND ? GROUP BY 1),
-    allb AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n, MAX(purchase_date) last_d, MIN(purchase_date) first_d FROM invoices i WHERE {INV_OK} GROUP BY 1)
+    allb AS (SELECT customer_id, SUM(COALESCE(net_total,total)) rev, COUNT(*) n, MAX(purchase_date) last_d, MIN(purchase_date) first_d FROM invoices i WHERE {INV_OK} GROUP BY 1),
+    curr AS ({RET_BY_CUST}), prevr AS ({RET_BY_CUST}), allr AS ({RET_BY_CUST_ALL})
     SELECT c.id, c.code, c.name, c.contact_number, c.groups, {sale_expr()} AS sale, c.debt,
-      COALESCE(cur.rev,0) revenue, COALESCE(cur.n,0) invoices, COALESCE(prev.rev,0) revenue_prev, COALESCE(prev.n,0) invoices_prev,
-      COALESCE(allb.rev,0) lifetime_revenue, COALESCE(allb.n,0) lifetime_invoices, allb.last_d last_purchase, allb.first_d first_purchase,
+      COALESCE(cur.rev,0) revenue, COALESCE(cur.n,0) invoices,
+      COALESCE(prev.rev,0) revenue_prev, COALESCE(prev.n,0) invoices_prev,
+      COALESCE(curr.v,0) returned,
+      COALESCE(allb.rev,0) lifetime_revenue, COALESCE(allb.n,0) lifetime_invoices,
+      allb.last_d last_purchase, allb.first_d first_purchase,
       CAST(julianday(?) - julianday(allb.last_d) AS INTEGER) AS days_since_last
     FROM customers c LEFT JOIN cur ON cur.customer_id=c.id LEFT JOIN prev ON prev.customer_id=c.id LEFT JOIN allb ON allb.customer_id=c.id
+      LEFT JOIN curr ON curr.cid=c.id LEFT JOIN prevr ON prevr.cid=c.id LEFT JOIN allr ON allr.cid=c.id
     WHERE c.is_active=1 AND (cur.customer_id IS NOT NULL OR prev.customer_id IS NOT NULL OR allb.last_d >= ?) {sf}
     ORDER BY revenue DESC, lifetime_revenue DESC LIMIT ?"""
     year_ago = (date.today() - timedelta(days=365)).isoformat()
-    rows = db.rows(sql, (f, t, pf, pt, today, year_ago) + sp + (limit,))
+    rows = db.rows(sql, (f, t, pf, pt, f, t, pf, pt, today, year_ago) + sp + (limit,))
     for r in rows:
         r["growth"] = _growth(r["revenue"], r["revenue_prev"])
         r["segment"] = _segment(r)
@@ -152,10 +171,17 @@ def revenue_summary(from_d, to_d, sale=None):
     f, t, pf, pt = _period(from_d, to_d)
     sf, sp = _sale_filter(sale)
     join = "JOIN customers c ON c.id=i.customer_id" if sale else "LEFT JOIN customers c ON c.id=i.customer_id"
+    rjoin = "JOIN customers c ON c.id=r.customer_id" if sale else "LEFT JOIN customers c ON c.id=r.customer_id"
     cur = db.one(f"SELECT COALESCE(SUM(COALESCE(i.net_total, i.total)),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (f, t) + sp)
     prev = db.one(f"SELECT COALESCE(SUM(COALESCE(i.net_total, i.total)),0) rev, COUNT(*) n, COUNT(DISTINCT i.customer_id) cust FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf}", (pf, pt) + sp)
+    # trừ hàng trả
+    retc = db.one(f"SELECT COALESCE(SUM(r.total),0) v FROM returns r {rjoin} WHERE r.return_date BETWEEN ? AND ? {sf}", (f, t) + sp)["v"]
+    retp = db.one(f"SELECT COALESCE(SUM(r.total),0) v FROM returns r {rjoin} WHERE r.return_date BETWEEN ? AND ? {sf}", (pf, pt) + sp)["v"]
     daily = db.rows(f"SELECT substr(i.purchase_date,1,10) d, SUM(COALESCE(i.net_total, i.total)) rev, COUNT(*) n FROM invoices i {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1 ORDER BY 1", (f, t) + sp)
-    return {"revenue": cur["rev"], "invoices": cur["n"], "customers": cur["cust"],
+    dret = {r["d"]: r["v"] for r in db.rows(f"SELECT substr(r.return_date,1,10) d, SUM(r.total) v FROM returns r {rjoin} WHERE r.return_date BETWEEN ? AND ? {sf} GROUP BY 1", (f, t) + sp)}
+    for r in daily:
+        r["returned"] = dret.get(r["d"], 0)
+    return {"revenue": cur["rev"], "invoices": cur["n"], "customers": cur["cust"], "returned": retc,
             "revenue_prev": prev["rev"], "invoices_prev": prev["n"], "customers_prev": prev["cust"],
             "revenue_growth": _growth(cur["rev"], prev["rev"]), "daily": daily,
             "total_customers": db.one(f"SELECT COUNT(*) n FROM customers c WHERE c.is_active=1 {sf}", sp)["n"],
@@ -171,18 +197,26 @@ def product_velocity(from_d, to_d, sale=None):
     days = (datetime.fromisoformat(to_d) - datetime.fromisoformat(from_d)).days + 1
     sf, sp = _sale_filter(sale)
     join = "JOIN customers c ON c.id=i.customer_id" if sale else ""
+    rjoin, rsf = ("JOIN customers c ON c.id=r.customer_id", sf) if sale else ("", "")
     sql = f"""
     WITH cur AS (SELECT d.product_id, SUM(d.quantity) qty, SUM(d.sub_total) rev, COUNT(DISTINCT d.invoice_id) n
                  FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1),
     prev AS (SELECT d.product_id, SUM(d.quantity) qty, SUM(d.sub_total) rev
              FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id {join} WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? {sf} GROUP BY 1),
-    lastsold AS (SELECT d.product_id, MAX(i.purchase_date) d FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id WHERE {INV_OK} GROUP BY 1)
+    lastsold AS (SELECT d.product_id, MAX(i.purchase_date) d FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id WHERE {INV_OK} GROUP BY 1),
+    curr AS (SELECT rd.product_id, SUM(rd.quantity) qty, SUM(rd.sub_total) rev FROM return_details rd
+             JOIN returns r ON r.id=rd.return_id {rjoin} WHERE r.return_date BETWEEN ? AND ? {rsf} GROUP BY 1),
+    prevr AS (SELECT rd.product_id, SUM(rd.quantity) qty, SUM(rd.sub_total) rev FROM return_details rd
+              JOIN returns r ON r.id=rd.return_id {rjoin} WHERE r.return_date BETWEEN ? AND ? {rsf} GROUP BY 1)
     SELECT p.id, p.code, p.name, p.category_name, p.base_price, p.cost, p.on_hand,
       COALESCE(cur.qty,0) qty, COALESCE(cur.rev,0) revenue, COALESCE(cur.n,0) invoices,
+      COALESCE(curr.qty,0) qty_returned, COALESCE(curr.rev,0) returned,
       COALESCE(prev.qty,0) qty_prev, COALESCE(prev.rev,0) revenue_prev, lastsold.d last_sold
     FROM products p LEFT JOIN cur ON cur.product_id=p.id LEFT JOIN prev ON prev.product_id=p.id LEFT JOIN lastsold ON lastsold.product_id=p.id
+      LEFT JOIN curr ON curr.product_id=p.id LEFT JOIN prevr ON prevr.product_id=p.id
     WHERE p.is_active=1 AND (cur.product_id IS NOT NULL OR prev.product_id IS NOT NULL OR COALESCE(p.on_hand,0) > 0)"""
-    rows = db.rows(sql, (f, t) + sp + (pf, pt) + sp)
+    rp = sp if sale else ()
+    rows = db.rows(sql, (f, t) + sp + (pf, pt) + sp + (f, t) + rp + (pf, pt) + rp)
     today = date.today()
     for r in rows:
         r["qty_per_day"] = round(r["qty"] / days, 2) if days else 0
@@ -315,6 +349,10 @@ def customer_detail(cid):
     items = db.rows(f"""SELECT d.product_name, SUM(d.quantity) qty, SUM(d.sub_total) rev, MAX(i.purchase_date) last_d FROM invoice_details d
         JOIN invoices i ON i.id=d.invoice_id WHERE i.customer_id=? AND {INV_OK} GROUP BY d.product_id ORDER BY rev DESC LIMIT 50""", (cid,))
     monthly = db.rows(f"SELECT substr(purchase_date,1,7) ym, SUM(COALESCE(net_total,total)) rev, COUNT(*) n FROM invoices i WHERE customer_id=? AND {INV_OK} GROUP BY 1 ORDER BY 1 DESC LIMIT 24", (cid,))
+    ret = {r["ym"]: r["v"] for r in db.rows(
+        "SELECT substr(return_date,1,7) ym, SUM(total) v FROM returns WHERE customer_id=? GROUP BY 1", (cid,))}
+    for m in monthly:
+        m["returned"] = ret.get(m["ym"], 0)
     notes = db.rows("SELECT * FROM notes WHERE customer_id=? ORDER BY created DESC", (cid,))
     return {"customer": c, "invoices": invs, "items": items, "monthly": monthly[::-1], "notes": notes}
 
@@ -392,23 +430,35 @@ def kpi_alloc():
     return dict(DEFAULT_ALLOC)
 
 
+WEEK_CUTS = [(1, 5), (6, 12), (13, 19), (20, 31)]
+
+
 def _weeks(from_d, to_d):
-    """Chia kỳ thành tuần 1-4(5) theo ngày trong tháng, giống bảng Excel."""
+    """Tuần theo đúng mốc ngày của bảng kế toán: 1-5, 6-12, 13-19, 20-cuối tháng."""
     f = datetime.fromisoformat(from_d).date()
     t = datetime.fromisoformat(to_d).date()
     out = []
-    i = 1
-    cur = f
-    while cur <= t:
-        end = min(cur + timedelta(days=6), t)
-        out.append({"week": i, "from": cur.isoformat(), "to": end.isoformat()})
-        cur = end + timedelta(days=1)
-        i += 1
+    for i, (d1, d2) in enumerate(WEEK_CUTS, 1):
+        a = f.replace(day=min(d1, 28)) if d1 <= 28 else f
+        a = f.replace(day=d1)
+        try:
+            b = f.replace(day=d2)
+        except ValueError:
+            b = t
+        a = max(a, f)
+        b = min(b, t)
+        if a <= b:
+            out.append({"week": i, "from": a.isoformat(), "to": b.isoformat(),
+                        "label": f"TUẦN {i} ({d1:02d} - {d2:02d})"})
     return out
 
 
 def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
-    """Bảng doanh số: theo sale/team, trừ hàng trả, tách khách sếp, tách nhóm hàng, so chỉ tiêu."""
+    """Bảng doanh số: theo sale/team, tách khách sếp, tách nhóm hàng, so chỉ tiêu.
+
+    Hàng trả chỉ trừ khỏi doanh số khách sếp; doanh số khách sale để gộp, đúng
+    cách kế toán lên sheet "BẢNG TỔNG DOANH SỐ KHÁCH SẾP KHÁCH SALE".
+    """
     f, t, pf, pt = _period(from_d, to_d)
     ym = ym or from_d[:7]
     sx = _seller_expr(basis)
@@ -416,6 +466,8 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     # hàng trả của khách sale phải quy theo đúng trục với doanh số khách sale
     rx = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')"
           if basis in ("invoice", "accounting") else CUST_EXPR)
+    # hàng trả của khách sếp quy theo trục của khách sếp
+    brx0 = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')" if basis == "invoice" else CUST_EXPR)
     cm = cat_map()
 
     bx = _seller_expr(basis, boss=True)
@@ -435,15 +487,14 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     for v in totals.values():
         v["gross"] = v["rev_sale"] + v["rev_boss"]
 
-    # hàng trả trong kỳ (loại trừ khỏi doanh số, theo đúng quy trình)
+    # hàng trả trong kỳ: chỉ trừ khỏi doanh số khách sếp; khách sale để gộp
     rets = {}
     for r in db.rows(f"""SELECT {rx} s, SUM(r.total) ret_sale, COUNT(*) ret_n
         FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
         LEFT JOIN invoices oi ON oi.id=r.invoice_id
         WHERE COALESCE(c.is_boss,0)=0 AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (f, t)):
         rets[r["s"]] = {"ret_sale": r["ret_sale"] or 0, "ret_boss": 0, "ret_n": r["ret_n"]}
-    brx = ("COALESCE(NULLIF(oi.sold_by_name,''),'(Trả hàng cũ)')" if basis == "invoice" else CUST_EXPR)
-    for r in db.rows(f"""SELECT {brx} s, SUM(r.total) ret_boss, COUNT(*) ret_n
+    for r in db.rows(f"""SELECT {brx0} s, SUM(r.total) ret_boss, COUNT(*) ret_n
         FROM returns r JOIN customers c ON c.id=r.customer_id
         LEFT JOIN invoices oi ON oi.id=r.invoice_id
         WHERE COALESCE(c.is_boss,0)=1 AND COALESCE(c.boss_no_kpi,0)=0
@@ -458,11 +509,12 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
     for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
         WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
         prev[r["s"]] = r["v"] or 0
-    for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
-        LEFT JOIN invoices oi ON oi.id=r.invoice_id WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
+    for r in db.rows(f"""SELECT {brx0} s, SUM(r.total) v FROM returns r JOIN customers c ON c.id=r.customer_id
+        LEFT JOIN invoices oi ON oi.id=r.invoice_id
+        WHERE c.is_boss=1 AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (pf, pt)):
         prev[r["s"]] = prev.get(r["s"], 0) - (r["v"] or 0)
 
-    # nhóm hàng (chỉ trên khách sale), đã trừ hàng trả
+    # nhóm hàng (chỉ trên khách sale) — tính gộp, không trừ hàng trả (theo cách kế toán lên bảng)
     cats = {}
 
     def addcat(sale, tm, amount):
@@ -475,13 +527,6 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN products p ON p.id=d.product_id
         WHERE {INV_OK} AND COALESCE(c.is_boss,0)=0 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
         addcat(r["s"], r["tm"], r["rev"] or 0)
-    for r in db.rows(f"""SELECT {rx} s, COALESCE(NULLIF(rd.trade_mark,''), p.trade_mark, '') tm, SUM(rd.sub_total) rev
-        FROM return_details rd JOIN returns r ON r.id=rd.return_id
-        LEFT JOIN customers c ON c.id=r.customer_id LEFT JOIN invoices oi ON oi.id=r.invoice_id
-        LEFT JOIN products p ON p.id=rd.product_id
-        WHERE COALESCE(c.is_boss,0)=0 AND r.return_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
-        addcat(r["s"], r["tm"], -(r["rev"] or 0))
-
     newc = {r["s"]: r["rev"] for r in db.rows(f"""
         WITH firstbuy AS (SELECT customer_id, MIN(purchase_date) d FROM invoices i WHERE {INV_OK} GROUP BY 1)
         SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) rev FROM invoices i
@@ -500,8 +545,9 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
             for r in db.rows(f"""SELECT {sx} s, SUM(COALESCE(i.net_total, i.total)) v FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id
                 WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
                 wk.setdefault(r["s"], {})[w["week"]] = r["v"] or 0
-            for r in db.rows(f"""SELECT {rx} s, SUM(r.total) v FROM returns r LEFT JOIN customers c ON c.id=r.customer_id
-                LEFT JOIN invoices oi ON oi.id=r.invoice_id WHERE r.return_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
+            for r in db.rows(f"""SELECT {brx0} s, SUM(r.total) v FROM returns r JOIN customers c ON c.id=r.customer_id
+                LEFT JOIN invoices oi ON oi.id=r.invoice_id
+                WHERE c.is_boss=1 AND r.return_date BETWEEN ? AND ? GROUP BY 1""", (wf, wt)):
                 d0 = wk.setdefault(r["s"], {})
                 d0[w["week"]] = d0.get(w["week"], 0) - (r["v"] or 0)
 
@@ -511,7 +557,7 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
         rr = rets.get(s) or {}
         c = cats.get(s, {})
         tg = (targets.get(s) or {}).get("revenue_target") or 0
-        rev_sale = (tt.get("rev_sale") or 0) - (rr.get("ret_sale") or 0)
+        rev_sale = tt.get("rev_sale") or 0
         rev_boss = (tt.get("rev_boss") or 0) - (rr.get("ret_boss") or 0)
         row = {"sale": s, "team": team_of.get(s) or "(Chưa xếp team)",
                "gross": tt.get("gross", 0) or 0, "returns": rr.get("ret_total", 0) or 0,

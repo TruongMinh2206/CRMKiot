@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, sync, reports, excel, backup
+from . import config, db, sync, reports, excel, backup, gsheet
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
@@ -128,6 +128,46 @@ async def settings_save(request: Request, user=Depends(current_user)):
         config.CHURN_DAYS = int(b["churn_days"])
     r = sync.reapply_async()
     return {"ok": True, "sale_source": sync.sale_source(), "pending": r != "started"}
+
+
+# ---------------------------------------------------------------------------
+# Xuất sang Google Sheet
+# ---------------------------------------------------------------------------
+@app.get("/api/gsheet")
+def gsheet_status(user=Depends(current_user)):
+    return gsheet.status()
+
+
+@app.post("/api/gsheet")
+async def gsheet_config(request: Request, user=Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403)
+    b = await request.json()
+    if b.get("sa"):
+        try:
+            json.loads(b["sa"])
+        except ValueError:
+            raise HTTPException(400, "Nội dung service account không phải JSON hợp lệ")
+        db.set_meta("gsheet_sa", b["sa"])
+    for k in ("gsheet_id", "gsheet_tpl"):
+        if b.get(k) is not None:
+            db.set_meta(k, str(b[k]).strip())
+    return gsheet.status()
+
+
+@app.post("/api/gsheet/export")
+async def gsheet_export(request: Request, user=Depends(current_user)):
+    if user["role"] not in ("admin", "manager"):
+        raise HTTPException(403)
+    b = await request.json()
+    ym = (b.get("ym") or "").strip()
+    if len(ym) != 7:
+        raise HTTPException(400, "Thiếu tháng cần xuất (YYYY-MM)")
+    try:
+        return gsheet.export(ym, db.get_meta("report_basis") or "accounting",
+                             b.get("title"), bool(b.get("replace")))
+    except gsheet.ConfigError as e:
+        raise HTTPException(400, str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -299,20 +339,20 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("Khach theo sale", [("sale", "Sale"), ("total_customers", "Tổng KH"), ("new_customers", "KH mới"),
                         ("new_customers_prev", "KH mới kỳ trước"), ("buying_customers", "KH có mua"), ("buying_customers_prev", "KH có mua kỳ trước"),
                         ("customer_growth", "Tăng/giảm KH %", P), ("first_time_buyers", "Mua lần đầu"), ("gained_vs_prev", "KH quay lại/mới"),
-                        ("lost_vs_prev", "KH mất so kỳ trước"), ("churned", "KH ngừng mua"), ("revenue", "Doanh số", M),
+                        ("lost_vs_prev", "KH mất so kỳ trước"), ("churned", "KH ngừng mua"), ("returned", "Hàng trả", M), ("revenue", "Doanh số", M),
                         ("revenue_prev", "Doanh số kỳ trước", M), ("revenue_growth", "Tăng/giảm DS %", P), ("invoices", "Số HĐ"), ("avg_invoice", "TB/HĐ", M)], rows))
     elif report == "trend":
         sheets.append(("Bien dong KH", [("ym", "Tháng"), ("new_customers", "KH mới"), ("first_buyers", "Mua lần đầu"), ("active_customers", "KH có mua"),
                         ("returning_customers", "KH quay lại"), ("lost_customers", "KH ngừng mua"), ("net_change", "Tăng/giảm ròng"),
-                        ("cumulative_customers", "Tổng KH đầu kỳ"), ("revenue", "Doanh số", M)], reports.customer_trend(months, s)))
+                        ("cumulative_customers", "Tổng KH đầu kỳ"), ("returned", "Hàng trả", M), ("revenue", "Doanh số", M)], reports.customer_trend(months, s)))
     elif report == "customers":
         sheets.append(("Doanh so KH", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"), ("segment", "Phân nhóm"),
-                        ("revenue", "Doanh số", M), ("invoices", "Số HĐ"), ("revenue_prev", "DS kỳ trước", M), ("growth", "Tăng/giảm %", P),
+                        ("returned", "Hàng trả", M), ("revenue", "Doanh số", M), ("invoices", "Số HĐ"), ("revenue_prev", "DS kỳ trước", M), ("growth", "Tăng/giảm %", P),
                         ("lifetime_revenue", "DS tích luỹ", M), ("lifetime_invoices", "HĐ tích luỹ"), ("last_purchase", "Mua gần nhất"),
                         ("days_since_last", "Số ngày chưa mua"), ("debt", "Công nợ", M), ("groups", "Nhóm KH")], reports.customer_revenue(f, t, s, 5000)))
     elif report == "products":
         sheets.append(("Hang nhanh cham", [("code", "Mã hàng"), ("name", "Tên hàng"), ("category_name", "Nhóm hàng"), ("speed", "Tốc độ"),
-                        ("qty", "SL bán"), ("qty_prev", "SL kỳ trước"), ("growth", "Tăng/giảm %", P), ("revenue", "Doanh số", M), ("qty_per_day", "SL/ngày"),
+                        ("qty", "SL bán"), ("qty_returned", "SL trả"), ("qty_prev", "SL kỳ trước"), ("growth", "Tăng/giảm %", P), ("returned", "Hàng trả", M), ("revenue", "Doanh số", M), ("qty_per_day", "SL/ngày"),
                         ("on_hand", "Tồn kho"), ("days_of_stock", "Ngày tồn còn"), ("stock_value", "Giá trị tồn", M), ("last_sold", "Bán gần nhất"),
                         ("days_since_sold", "Ngày chưa bán")], reports.product_velocity(f, t, s)))
     elif report == "journey":
