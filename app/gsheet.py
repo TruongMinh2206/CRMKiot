@@ -50,7 +50,8 @@ def status():
         except ValueError:
             email = "(JSON lỗi)"
     return {"configured": bool(sa and db.get_meta("gsheet_id")), "client_email": email,
-            "sheet_id": db.get_meta("gsheet_id") or "", "template": db.get_meta("gsheet_tpl") or ""}
+            "sheet_id": db.get_meta("gsheet_id") or "", "template": db.get_meta("gsheet_tpl") or "",
+            "sale_merge": db.get_meta("sale_merge") or ""}
 
 
 def _token(info):
