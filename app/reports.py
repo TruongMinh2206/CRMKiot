@@ -430,27 +430,31 @@ def kpi_alloc():
     return dict(DEFAULT_ALLOC)
 
 
-WEEK_CUTS = [(1, 5), (6, 12), (13, 19), (20, 31)]
+def _weeks(from_d, to_d, n=4):
+    """Chia khoảng ngày đã chọn thành tối đa 4 cột tuần.
 
-
-def _weeks(from_d, to_d):
-    """Tuần theo đúng mốc ngày của bảng kế toán: 1-5, 6-12, 13-19, 20-cuối tháng."""
+    Bảng của kế toán cắt tuần theo chủ nhật, và mốc đổi theo từng tháng
+    (T9: 01-06, T10: 01-05, T11: 01-08), nên không thể cố định theo ngày
+    trong tháng. Ở đây tuần kết thúc vào chủ nhật; tuần đầu có thể ngắn,
+    tuần cuối gom hết phần còn lại của khoảng đã chọn.
+    """
     f = datetime.fromisoformat(from_d).date()
     t = datetime.fromisoformat(to_d).date()
-    out = []
-    for i, (d1, d2) in enumerate(WEEK_CUTS, 1):
-        a = f.replace(day=min(d1, 28)) if d1 <= 28 else f
-        a = f.replace(day=d1)
-        try:
-            b = f.replace(day=d2)
-        except ValueError:
-            b = t
-        a = max(a, f)
+    if t < f:
+        return []
+    cuts, a = [], f
+    while a <= t and len(cuts) < n - 1:
+        b = a + timedelta(days=(6 - a.weekday()) % 7)   # chủ nhật của tuần chứa a
+        if (b - a).days < 2 and a == f:                 # tuần đầu quá ngắn thì gộp sang tuần sau
+            b = b + timedelta(days=7)
         b = min(b, t)
-        if a <= b:
-            out.append({"week": i, "from": a.isoformat(), "to": b.isoformat(),
-                        "label": f"TUẦN {i} ({d1:02d} - {d2:02d})"})
-    return out
+        cuts.append((a, b))
+        a = b + timedelta(days=1)
+    if a <= t:
+        cuts.append((a, t))
+    return [{"week": i, "from": a.isoformat(), "to": b.isoformat(),
+             "label": f"TUẦN {i} ({a.day:02d} - {b.day:02d})"}
+            for i, (a, b) in enumerate(cuts, 1)]
 
 
 def cancelled_invoices(from_d, to_d, limit=500):

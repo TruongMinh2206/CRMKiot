@@ -103,10 +103,20 @@ def _batch(c, sid, requests):
     return r.json()
 
 
-def export(ym, basis="accounting", title=None, replace=False):
-    """Tạo tab mới cho tháng ym từ tab mẫu rồi điền số. Trả về tên tab và link."""
+def _default_title(from_d, to_d):
+    """Trọn tháng thì đặt theo tháng; khoảng lẻ thì ghi rõ ngày."""
+    import calendar
+    y, m = int(from_d[:4]), int(from_d[5:7])
+    last = calendar.monthrange(y, m)[1]
+    if from_d[8:] == "01" and to_d[:7] == from_d[:7] and int(to_d[8:]) == last:
+        return f"T{m}.{y} (CRM)"
+    return f"{from_d[8:]}-{from_d[5:7]} đến {to_d[8:]}-{to_d[5:7]}.{to_d[:4]} (CRM)"
+
+
+def export(from_d, to_d, basis="accounting", title=None, replace=False):
+    """Tạo tab mới cho khoảng ngày từ tab mẫu rồi điền số. Trả về tên tab và link."""
     try:
-        return _export(ym, basis, title, replace)
+        return _export(from_d, to_d, basis, title, replace)
     except ConfigError:
         raise
     except Exception as e:                      # đừng để lỗi lạ thành 500 trắng màn hình
@@ -114,10 +124,10 @@ def export(ym, basis="accounting", title=None, replace=False):
         raise ConfigError(f"{type(e).__name__}: {e}")
 
 
-def _export(ym, basis, title, replace):
+def _export(from_d, to_d, basis, title, replace):
     info, sid, tpl = config()
     tok = _token(info)
-    title = title or f"T{int(ym[5:7])}.{ym[:4]} (CRM)"
+    title = title or _default_title(from_d, to_d)
     with _client(tok) as c:
         tabs = _sheets(c, sid)
         if not tpl:
@@ -136,7 +146,7 @@ def _export(ym, basis, title, replace):
                                             "insertSheetIndex": 0}}])
 
         data = [{"range": f"'{title}'!{rng}", "values": rows}
-                for rng, rows in sheet_template.blocks(sheet_export.collect(ym, basis))]
+                for rng, rows in sheet_template.blocks(sheet_export.collect(from_d, to_d, basis))]
         r = c.post(f"{API}/{sid}/values:batchUpdate",
                    json={"valueInputOption": "USER_ENTERED", "data": data})
         if r.status_code >= 400:

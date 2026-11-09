@@ -84,15 +84,21 @@ def _st(target, actual):
 def blocks(d):
     """Trả về [(vùng A1, mảng 2 chiều)] để ghi đè lên bản sao template."""
     weeks = [w["week"] for w in d["weeks"]]
+    # luôn lấp đủ 4 cột tuần của mẫu; khoảng ngày ngắn thì cột thừa bị xoá trắng
+    slots = (weeks + [None] * 4)[:4]
     tg = {s: (d["targets"].get(s, {}) or {}).get("revenue_target") or 0 for s in d["sellers"]}
     out = []
+
+    # ---------------- nhãn tuần ở khối tổng ----------------
+    lbl = [w["label"] for w in d["weeks"]]
+    out.append(("E4:E7", [[lbl[i]] if i < len(lbl) else [""] for i in range(4)]))
 
     # ---------------- BẢNG 2 ----------------
     by_code = {b["code"]: b for b in d["boss"].values()}
     rows = []
     for r, code in B2_CUSTOMERS:
         b = by_code.get(code)
-        wk = [(b["weeks"].get(w, 0) if b else 0) for w in weeks]
+        wk = [((b["weeks"].get(w, 0) if b else 0) if w else "") for w in slots]
         rows.append([
             None, None, None, _st(f"D{r}", f"E{r}"),                 # D E F G
             None, wk[0], _st(f"$H{r}", f"I{r}"), None,               # H I J K
@@ -111,11 +117,11 @@ def blocks(d):
         line[2] = _st(f"C{r}", f"D{r}")    # E: tình trạng tháng
         for k in CAT_ORDER:
             c0 = CAT_COL0[k]               # cột mục tiêu tuần của nhóm (0-based)
-            for i, w in enumerate(weeks):
-                v = d["cat_week"].get(s, {}).get(k, {}).get(w, 0)
+            for i, w in enumerate(slots):
+                v = d["cat_week"].get(s, {}).get(k, {}).get(w, 0) if w else ""
                 line[c0 - 2 + 1 + i * 3] = v                                   # doanh số tuần
-                line[c0 - 2 + 2 + i * 3] = _st(f"${_col(c0)}{r}",
-                                               f"{_col(c0 + 1 + i * 3)}{r}")   # tình trạng tuần
+                line[c0 - 2 + 2 + i * 3] = (_st(f"${_col(c0)}{r}",
+                                                f"{_col(c0 + 1 + i * 3)}{r}") if w else "")
         rows.append(line)
     out.append((f"C{B3_ROWS[0]}:{_col(width - 1)}{B3_ROWS[-1]}", rows))
 

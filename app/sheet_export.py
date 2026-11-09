@@ -47,14 +47,14 @@ def _sellers_in_board():
     return [s for s in out if s in real]
 
 
-def collect(ym, basis="accounting"):
-    """Gom toàn bộ số liệu cần cho sheet của một tháng."""
-    f, t = _month_range(ym)
+def collect(from_d, to_d, basis="accounting"):
+    """Gom số liệu cho sheet, đúng theo khoảng ngày được chọn."""
+    f, t = from_d, to_d
     weeks = reports._weeks(f, t)
     cm = reports.cat_map()
     alloc = reports.kpi_alloc()
     teams = {r["sale"]: r["team"] for r in db.rows("SELECT sale, team FROM teams")}
-    targets = {r["sale"]: r for r in db.rows("SELECT * FROM kpi_targets WHERE ym=?", (ym,))}
+    targets = {r["sale"]: r for r in db.rows("SELECT * FROM kpi_targets WHERE ym=?", (f[:7],))}
     merge = sale_merge()
     sellers = _sellers_in_board()
     # người bán phụ vẫn phải nằm trong câu truy vấn để lấy được hoá đơn của họ
@@ -125,7 +125,7 @@ def collect(ym, basis="accounting"):
             wk[w["week"]] = iv - rv
         boss[r["id"]] = {**r, "total": inv - ret, "weeks": wk}
 
-    return {"ym": ym, "from": f, "to": t, "weeks": weeks, "sellers": sellers, "teams": teams,
+    return {"from": f, "to": t, "weeks": weeks, "sellers": sellers, "teams": teams,
             "targets": targets, "alloc": alloc, "sale_week": sale_week, "cat_week": cat_week,
             "boss": boss}
 

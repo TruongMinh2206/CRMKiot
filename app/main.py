@@ -168,11 +168,18 @@ async def gsheet_export(request: Request, user=Depends(current_user)):
     if user["role"] not in ("admin", "manager"):
         raise HTTPException(403)
     b = await request.json()
-    ym = (b.get("ym") or "").strip()
-    if len(ym) != 7:
-        raise HTTPException(400, "Thiếu tháng cần xuất (YYYY-MM)")
+    f, t = (b.get("from") or "").strip(), (b.get("to") or "").strip()
+    if not (f and t):
+        ym = (b.get("ym") or "").strip()          # tương thích cách gọi cũ
+        if len(ym) != 7:
+            raise HTTPException(400, "Thiếu khoảng ngày cần xuất")
+        import calendar
+        y, mth = int(ym[:4]), int(ym[5:7])
+        f, t = f"{ym}-01", f"{ym}-{calendar.monthrange(y, mth)[1]:02d}"
+    if t < f:
+        raise HTTPException(400, "Ngày kết thúc nhỏ hơn ngày bắt đầu")
     try:
-        return gsheet.export(ym, db.get_meta("report_basis") or "accounting",
+        return gsheet.export(f, t, db.get_meta("report_basis") or "accounting",
                              b.get("title"), bool(b.get("replace")))
     except gsheet.ConfigError as e:
         raise HTTPException(400, str(e))
