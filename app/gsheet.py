@@ -119,6 +119,8 @@ def export(from_d, to_d, basis="accounting", title=None, replace=False):
         return _export(from_d, to_d, basis, title, replace)
     except ConfigError:
         raise
+    except sheet_template.LayoutError as e:
+        raise ConfigError(str(e))
     except Exception as e:                      # đừng để lỗi lạ thành 500 trắng màn hình
         log.exception("xuất Google Sheet thất bại")
         raise ConfigError(f"{type(e).__name__}: {e}")
