@@ -428,15 +428,14 @@ async function board(){
     <td class="r"><b>${money(r.total)}</b></td><td class="r">${pctCell(r.pct)}</td><td>${st(r.status)}</td></tr>`;
   const body=d.teams.map(g=>line(g,true)+(byTeam[g.team]||[]).map(r=>line(r,false)).join('')).join('');
   const T=k=>d.rows.reduce((a,r)=>a+(r[k]||0),0);
-  const gym=state.from.slice(0,7);
-  m.innerHTML=topbar('Bảng doanh số',{sale:false,extra:`<select class="f" id="fBasis"><option value="accounting" ${d.basis==='accounting'?'selected':''}>Như kế toán đang tính (khuyến nghị)</option><option value="customer" ${d.basis==='customer'?'selected':''}>Tất cả theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tất cả theo người bán trên hoá đơn</option></select><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="fWeek" ${state.weekly?'checked':''}> theo tuần</label><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="gRepB"> ghi đè</label><button class="btn" id="bGsB" title="Luôn xuất trọn tháng theo mẫu của kế toán, không phụ thuộc khoảng ngày đang lọc">⬇ Google Sheet · cả tháng ${gym.slice(5)}/${gym.slice(0,4)}</button>`})+
+  m.innerHTML=topbar('Bảng doanh số',{sale:false,extra:`<select class="f" id="fBasis"><option value="accounting" ${d.basis==='accounting'?'selected':''}>Như kế toán đang tính (khuyến nghị)</option><option value="customer" ${d.basis==='customer'?'selected':''}>Tất cả theo sale phụ trách khách</option><option value="invoice" ${d.basis==='invoice'?'selected':''}>Tất cả theo người bán trên hoá đơn</option></select><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="fWeek" ${state.weekly?'checked':''}> theo tuần</label><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="gRepB"> ghi đè</label><button class="btn" id="bGsB" title="Xuất sang Google Sheet đúng khoảng ngày đang chọn ở trên">⬇ Google Sheet</button>`})+
   `<div class="grid g4"><div class="card tile"><h3>Doanh số thực</h3><div class="v">${fmtK(T('total'))}</div><div class="d">bán ${fmtK(T('gross'))} − trả ${fmtK(T('returns'))}</div></div>
    <div class="card tile"><h3>Mục tiêu</h3><div class="v">${fmtK(T('target'))}</div><div class="d">${T('target')?'đạt '+Math.round(T('total')/T('target')*100)+'%':'chưa đặt chỉ tiêu'} · <a href="#kpi">đặt</a></div></div>
    <div class="card tile"><h3>Độc quyền (mới + cũ)</h3><div class="v">${fmtK(T('excl_new')+T('excl_old'))}</div><div class="d">mới ${fmtK(T('excl_new'))} · cũ ${fmtK(T('excl_old'))}</div></div>
    <div class="card tile"><h3>Khách sếp</h3><div class="v">${fmtK(T('rev_boss'))}</div><div class="d">khách sale ${fmtK(T('rev_sale'))}</div></div></div>
   <div class="card" style="margin-top:14px"><h3>Bảng doanh số ${dmy(d.from)} – ${dmy(d.to)} <span class="x">${d.basis==='accounting'?'khách sale theo người bán trên HĐ · khách sếp theo sale phụ trách':d.basis==='invoice'?'tính theo người bán ghi trên hoá đơn':'tính theo sale phụ trách khách (đuôi tên)'} · khách sếp đã trừ hàng trả, khách sale tính gộp</span></h3>
    <div class="tablewrap"><table id="t"><thead>${head}</thead><tbody>${body||'<tr><td colspan="16" class="empty">Chưa có dữ liệu</td></tr>'}</tbody></table></div>
-   <p class="small muted">Nút <b>Google Sheet</b> luôn xuất trọn tháng theo bố cục mẫu của kế toán (tuần 1–5, 6–12, 13–19, 20–hết tháng), lấy tháng theo ô ngày bắt đầu. Khoảng ngày lọc ở trên chỉ đổi bảng hiển thị tại đây.</p>
+   <p class="small muted">Nút <b>Google Sheet</b> xuất đúng khoảng ngày đang chọn ở trên. Cột tuần cắt theo chủ nhật giống bảng kế toán, và nhãn tuần được ghi thẳng vào sheet nên luôn biết mỗi cột gồm những ngày nào; chọn khoảng ngắn thì cột tuần thừa để trống.</p>
    <p class="small muted">Cột <b>HĐ huỷ</b> là hoá đơn đã huỷ trên KiotViet trong kỳ — CRM không tính vào doanh số. Nếu bảng kế toán gõ tay cao hơn CRM, hãy đối chiếu cột này trước: hoá đơn bị huỷ sau khi họ điền số là nguyên nhân thường gặp nhất.</p>
    <p class="small muted">% dưới mỗi nhóm hàng là mức đạt so với phần chỉ tiêu phân bổ cho nhóm đó (sửa tỷ lệ trong Cài đặt). Cột nhóm hàng và "bán cho khách mới" tính trên phần khách sale; "khách mới" theo dõi riêng, không cộng vào tổng.</p></div>`;
   const cl=d.cancelled_list||[];
@@ -447,7 +446,7 @@ async function board(){
     </tbody></table></div></div>`);
   bindTopbar(null);
   $('#bGsB').onclick=async()=>{const bt=$('#bGsB');const old=bt.textContent;bt.disabled=true;bt.textContent='Đang xuất…';
-    try{const r=await api('/gsheet/export',{method:'POST',body:{ym:gym,replace:$('#gRepB').checked}});
+    try{const r=await api('/gsheet/export',{method:'POST',body:{from:state.from,to:state.to,replace:$('#gRepB').checked}});
       toast('Đã xuất tab '+r.title);window.open(r.url,'_blank')}
     catch(e){toast(String(e.message||e))}
     finally{bt.disabled=false;bt.textContent=old}};
