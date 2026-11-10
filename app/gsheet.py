@@ -13,6 +13,7 @@ import logging
 import time
 
 import httpx
+from urllib.parse import quote
 
 from . import db, sheet_export, sheet_template
 
@@ -147,8 +148,16 @@ def _export(from_d, to_d, basis, title, replace):
         _batch(c, sid, [{"duplicateSheet": {"sourceSheetId": tabs[tpl], "newSheetName": title,
                                             "insertSheetIndex": 0}}])
 
+        # bố cục đọc thẳng từ tab vừa nhân bản, để người dùng chèn/bớt dòng
+        # trong tab mẫu mà không phải sửa code
+        g = c.get(f"{API}/{sid}/values/{quote(title)}!A1:C200",
+                  params={"majorDimension": "ROWS"})
+        if g.status_code >= 400:
+            raise ConfigError(f"Không đọc được bố cục tab mẫu: {g.text[:200]}")
+        layout = sheet_template.detect_layout(g.json().get("values") or [])
         data = [{"range": f"'{title}'!{rng}", "values": rows}
-                for rng, rows in sheet_template.blocks(sheet_export.collect(from_d, to_d, basis))]
+                for rng, rows in sheet_template.blocks(
+                    sheet_export.collect(from_d, to_d, basis), layout)]
         r = c.post(f"{API}/{sid}/values:batchUpdate",
                    json={"valueInputOption": "USER_ENTERED", "data": data})
         if r.status_code >= 400:

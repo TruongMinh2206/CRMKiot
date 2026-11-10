@@ -11,31 +11,58 @@ Các ô khác trả về None để update_values bỏ qua, giữ nguyên công 
 from . import reports
 
 # ---- bố cục template -----------------------------------------------------
-B1_ROW1 = 20           # dòng "TỔNG TEAM ..." đầu tiên
-B2_ROWS = range(59, 74)
-B3_ROWS = range(81, 89)
+# Không gán cứng số dòng: người dùng có thể chèn/bớt dòng trong tab mẫu, nên
+# bố cục được đọc thẳng từ mẫu mỗi lần xuất (xem detect_layout).
 
-# BẢNG 1: (dòng "TỔNG TEAM", các dòng MỤC TIÊU của từng sale trong team)
-TEAM_SLOTS = [(20, [21, 25, 29]), (33, [34, 38]), (42, [43, 47, 51])]
+# BẢNG 2: thứ tự mã khách đúng theo thứ tự dòng trong mẫu
+B2_CODES = ["KH002227", "KH002165", "KH005613", "KH001680", "KH003915",
+            "KH000716", "KH005797", "KH003858", "KH003164", "KH003160",
+            "KH001744", "KH005939", "KH003548", "KH003886", "KH004609"]
 
-# BẢNG 2: dòng -> mã khách trên KiotViet
-B2_CUSTOMERS = [
-    (59, "KH002227"),   # TOÁN AUTH
-    (60, "KH002165"),   # TRÀ GIANG
-    (61, "KH005613"),   # CHU THỊ LỆ
-    (62, "KH001680"),   # LINH NẤM
-    (63, "KH003915"),   # LAN DƯỢC
-    (64, "KH000716"),   # HINHY
-    (65, "KH005797"),   # TRÚC SÀI GÒN
-    (66, "KH003858"),   # PHẠM HÙNG
-    (67, "KH003164"),   # NAM PHONG
-    (68, "KH003160"),   # AHIHI
-    (69, "KH001744"),   # HUẾ FLORA
-    (70, "KH005939"),   # VÂN ANH CÂY RƠM
-    (71, "KH003548"),   # HÒA AN
-    (72, "KH003886"),   # HÀ LINH LONG BIÊN (K áp KPI)
-    (73, "KH004609"),   # NGỌC COCOLUX (K áp KPI)
-]
+
+def detect_layout(rows):
+    """Đọc bố cục từ 3 cột đầu của tab mẫu (rows[i] ứng với dòng i+1).
+
+    Dòng team là dòng có cột B bắt đầu bằng "TỔNG TEAM"; dòng của mỗi sale là
+    dòng có cột C là "MỤC TIÊU". BẢNG 2 và BẢNG 3 nhận ra qua tiêu đề ở cột A,
+    dữ liệu là các dòng có số thứ tự.
+    """
+    def cell(i, j):
+        r = rows[i] if i < len(rows) else []
+        return (r[j] if j < len(r) else "") or ""
+
+    def banner(prefix):
+        for i in range(len(rows)):
+            if cell(i, 0).strip().upper().startswith(prefix):
+                return i
+        return None
+
+    def numbered(start):
+        out = []
+        for i in range(start, len(rows)):
+            if cell(i, 0).strip().isdigit():
+                out.append(i + 1)
+            elif out:
+                break
+        return out
+
+    b1, b2, b3 = banner("BẢNG 1"), banner("BẢNG 2"), banner("BẢNG 3")
+    if b1 is None or b2 is None or b3 is None:
+        raise LayoutError("Tab mẫu thiếu một trong các bảng: BẢNG 1, BẢNG 2, BẢNG 3.")
+
+    team_slots, cur = [], None
+    for i in range(b1, b2):
+        if cell(i, 1).strip().upper().startswith("TỔNG TEAM"):
+            cur = (i + 1, [])
+            team_slots.append(cur)
+        elif cell(i, 2).strip().upper() == "MỤC TIÊU" and cur:
+            cur[1].append(i + 1)
+    if not team_slots:
+        raise LayoutError("Không tìm thấy dòng \"TỔNG TEAM\" nào trong tab mẫu.")
+
+    return {"b1_row1": team_slots[0][0], "b1_last": b2,
+            "team_slots": team_slots,
+            "b2_rows": numbered(b2), "b3_rows": numbered(b3)}
 
 # BẢNG 3: cột đầu của 5 khối nhóm hàng (0-based, so với cột A)
 CAT_COL0 = {"normal": 6, "excl_new": 19, "excl_old": 32, "slow": 45, "new_customer": 58}
@@ -64,7 +91,7 @@ class LayoutError(Exception):
     """Mẫu không đủ chỗ cho danh sách team/sale hiện tại."""
 
 
-def _layout(d):
+def _layout(d, L):
     """Xếp team và sale vào các ô có sẵn của mẫu, theo bảng phân team trong CRM.
 
     Trước đây danh sách này gán cứng nên đổi team trong CRM mà sheet không đổi.
@@ -80,7 +107,7 @@ def _layout(d):
 
     # các khối của mẫu rộng hẹp khác nhau (3 - 2 - 3 dòng), nên xếp team to vào
     # khối vừa nhất còn trống thay vì xếp lần lượt
-    free = list(TEAM_SLOTS)
+    free = list(L["team_slots"])
     placed, thieu = {}, []
     for team in order:
         members = sorted(teams[team], key=lambda x: -tot.get(x, 0))
@@ -91,32 +118,37 @@ def _layout(d):
         b = min(fit, key=lambda x: len(x[1]))
         free.remove(b)
         placed[b[0]] = (team, list(zip(b[1], members)))
-    assign = [(trow, *placed[trow]) for trow, _ in TEAM_SLOTS if trow in placed]
+    assign = [(trow, *placed[trow]) for trow, _ in L["team_slots"] if trow in placed]
 
     seq = [s for _, _, ms in assign for _, s in ms]
-    thieu += seq[len(B3_ROWS):]
+    b3rows = L["b3_rows"]
+    thieu += seq[len(b3rows):]
     if thieu:
         raise LayoutError(
-            "Mẫu chỉ đủ chỗ cho %d team và %d sale, thiếu chỗ cho: %s. "
+            "Tab mẫu chỉ đủ chỗ cho %d team và %d sale, thiếu chỗ cho: %s. "
             "Thêm dòng vào tab mẫu, hoặc gộp bớt người bán trong Cài đặt."
-            % (len(TEAM_SLOTS), len(B3_ROWS), ", ".join(sorted(set(thieu)))))
-    return assign, {s: B3_ROWS[0] + i for i, s in enumerate(seq)}
+            % (len(L["team_slots"]), len(b3rows), ", ".join(sorted(set(thieu)))))
+    return assign, {s: b3rows[i] for i, s in enumerate(seq)}
 
 
-def blocks(d):
+def blocks(d, layout):
     """Trả về [(vùng A1, mảng 2 chiều)] để ghi đè lên bản sao template."""
+    L = layout
+    B1_ROW1, B1_LAST = L["b1_row1"], L["b1_last"]
+    B2_ROWS, B3_ROWS = L["b2_rows"], L["b3_rows"]
+    TEAM_SLOTS = L["team_slots"]
     weeks = [w["week"] for w in d["weeks"]]
     # luôn lấp đủ 4 cột tuần của mẫu; khoảng ngày ngắn thì cột thừa bị xoá trắng
     slots = (weeks + [None] * 4)[:4]
     tg = {s: (d["targets"].get(s, {}) or {}).get("revenue_target") or 0 for s in d["sellers"]}
-    assign, b3 = _layout(d)
+    assign, b3 = _layout(d, L)
     b3_of = {r: s for s, r in b3.items()}
     # khách sếp của từng sale: cột K ở BẢNG 1 phải trỏ đúng dòng BẢNG 2 của
     # những khách do sale đó phụ trách, nếu không khối team đổi chỗ là lệch hết
     lead = {trow: (ms[0][0] if ms else None) for trow, _, ms in assign}
     team_of_row = {trow: team for trow, team, _ in assign}
     boss_rows = {}
-    code_row = {code: r for r, code in B2_CUSTOMERS}
+    code_row = dict(zip(B2_CODES, B2_ROWS))
     for b in d["boss"].values():
         if b["no_kpi"] or b["code"] not in code_row:
             continue
@@ -133,7 +165,7 @@ def blocks(d):
     # ---------------- BẢNG 2 ----------------
     by_code = {b["code"]: b for b in d["boss"].values()}
     rows = []
-    for r, code in B2_CUSTOMERS:
+    for r, code in zip(B2_ROWS, B2_CODES):
         b = by_code.get(code)
         wk = [((b["weeks"].get(w, 0) if b else 0) if w else "") for w in slots]
         rows.append([
@@ -168,8 +200,9 @@ def blocks(d):
 
     # ---------------- BẢNG 1 ----------------
     # D: mục tiêu tháng; dòng THỰC TẾ: trỏ lại đúng dòng của người đó ở BẢNG 3
-    rows = [[None] * 9 for _ in range(54 - B1_ROW1 + 1)]   # D..L, dòng 20..54
-    names = [[None] for _ in range(54 - B1_ROW1 + 1)]      # cột B: tên team / tên sale
+    n1 = B1_LAST - B1_ROW1 + 1                             # số dòng của BẢNG 1
+    rows = [[None] * 9 for _ in range(n1)]                 # D..L
+    names = [[None] for _ in range(n1)]                    # cột B: tên team / tên sale
     for trow, team, members in assign:
         names[trow - B1_ROW1] = [f"TỔNG TEAM {team.upper()}"]
         used = {r for r, _ in members}
@@ -205,8 +238,8 @@ def blocks(d):
                 names[i] = [""]
                 for k in range(4):
                     rows[i + k] = [""] * 9
-    out.append((f"B{B1_ROW1}:B54", names))
-    out.append((f"D{B1_ROW1}:L54", rows))
+    out.append((f"B{B1_ROW1}:B{B1_LAST}", names))
+    out.append((f"D{B1_ROW1}:L{B1_LAST}", rows))
 
     # ---------------- tên sale ở BẢNG 3 ----------------
     out.append((f"B{B3_ROWS[0]}:B{B3_ROWS[-1]}", [[b3_of.get(r, "")] for r in B3_ROWS]))
