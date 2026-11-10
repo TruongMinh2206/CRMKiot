@@ -186,7 +186,9 @@ def blocks(d, layout):
             rows.append([""] * (width - 2))
             continue
         line = [None] * (width - 2)        # bắt đầu từ cột C
-        line[0] = tg.get(s, 0) or None     # C: mục tiêu tháng
+        # chưa đặt chỉ tiêu trong CRM thì xoá trắng, đừng để số cũ của mẫu dính
+        # vào người khác khi thứ tự dòng thay đổi
+        line[0] = tg.get(s, 0) or ""       # C: mục tiêu tháng
         line[2] = _st(f"C{r}", f"D{r}")    # E: tình trạng tháng
         for k in CAT_ORDER:
             c0 = CAT_COL0[k]               # cột mục tiêu tuần của nhóm (0-based)
@@ -215,7 +217,7 @@ def blocks(d, layout):
         for r0, s in members:
             i = r0 - B1_ROW1
             names[i] = [s]
-            rows[i][0] = tg.get(s, 0) or None
+            rows[i][0] = tg.get(s, 0) or ""
             r3 = b3[s]
             f = rows[i + 1]
             f[2] = f"=H{r3}+K{r3}+N{r3}+Q{r3}"
