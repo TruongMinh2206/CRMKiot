@@ -105,6 +105,13 @@ CREATE TABLE IF NOT EXISTS leads (
   value REAL DEFAULT 0, note TEXT, lost_reason TEXT, address TEXT, product_interest TEXT,
   created TEXT, updated TEXT, created_by TEXT, converted_customer_id INTEGER, next_action TEXT, next_date TEXT
 );
+
+CREATE TABLE IF NOT EXISTS campaign_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, grp TEXT, stt INTEGER, customer_code TEXT, member TEXT,
+  program TEXT, start_at TEXT, end_at TEXT, carry_qty REAL DEFAULT 0, carry_amount REAL DEFAULT 0,
+  carry_note TEXT, registered TEXT, reward TEXT, owner TEXT, note TEXT, paid TEXT,
+  sheet_value REAL, sheet_last TEXT
+);
 """
 
 

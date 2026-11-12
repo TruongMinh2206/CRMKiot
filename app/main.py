@@ -14,8 +14,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
 from .main_auth import signer, COOKIE, _hash, current_user, scope, allowed, is_mgr, team_names, col_in  # noqa
-from . import extras
+from . import extras, campaign
 app.include_router(extras.router)
+app.include_router(campaign.router)
 
 
 def sale_scope(user, sale):
@@ -382,6 +383,13 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("Theo sale", [("sale", "Sale"), ("n", "Đơn"), ("done", "Hoàn thành"), ("cancelled", "Hủy"), ("pending", "Đang xử lý"), ("total", "Giá trị HT", M)], j["by_sale"]))
         sheets.append(("Don dang ket", [("code", "Mã đơn"), ("purchase_date", "Ngày"), ("customer_name", "Khách"), ("sold_by_name", "Sale"), ("status", "Trạng thái"),
                         ("delivery_status_value", "Giao hàng"), ("age_days", "Số ngày"), ("total", "Giá trị", M)], j["stuck"]))
+    elif report == "campaign":
+        sheets.append(("Thuong chien dich", [("stt", "STT"), ("grp", "Khách / Team"), ("codes", "Mã KH"), ("owner", "Phụ trách"),
+                        ("program", "Chương trình"), ("reward", "Thưởng"), ("registered", "Số khách ĐK"), ("start", "Bắt đầu"),
+                        ("carry", "Dư mang sang", M), ("qty", "Số lượng tính", M), ("amount", "Doanh số", M),
+                        ("value", "Số thực đạt", M), ("result", "Kết quả"), ("gift", "Quy đổi quà"),
+                        ("gap", "Còn thiếu", M), ("next", "Tới mốc"), ("last", "Đơn gần nhất"),
+                        ("paid", "Đã trả thưởng"), ("note", "Ghi chú")], campaign.export_sheets(user)))
     elif report == "debts":
         d = reports.debt_aging(s)
         sheets.append(("Cong no", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"),
