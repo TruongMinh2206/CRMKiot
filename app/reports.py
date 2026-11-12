@@ -26,7 +26,10 @@ def sale_expr():
 def _sale_filter(sale, alias="c"):
     if not sale:
         return "", ()
-    return f" AND COALESCE(NULLIF({alias}.sale_manual,''), NULLIF({alias}.sale_name,''), '(Chưa gán)') = ?", (sale,)
+    expr = f"COALESCE(NULLIF({alias}.sale_manual,''), NULLIF({alias}.sale_name,''), '(Chưa gán)')"
+    if isinstance(sale, (list, tuple)):          # trưởng nhóm: cả team
+        return f" AND {expr} IN ({','.join('?' * len(sale))})", tuple(sale)
+    return f" AND {expr} = ?", (sale,)
 
 
 def sales_list():
@@ -225,7 +228,12 @@ def product_velocity(from_d, to_d, sale=None):
         r["days_since_sold"] = (today - datetime.fromisoformat(r["last_sold"]).date()).days if r["last_sold"] else None
         r["stock_value"] = (r["on_hand"] or 0) * (r["cost"] or r["base_price"] or 0)
         # Phân loại
-        if r["qty"] == 0 and (r["on_hand"] or 0) > 0:
+        # nhập thêm bao nhiêu để đủ bán 30 ngày theo tốc độ hiện tại
+        need = r["qty_per_day"] * 30 - (r["on_hand"] or 0)
+        r["reorder_qty"] = int(-(-need // 1)) if need > 0 and r["qty"] > 0 else 0
+        if r["qty"] > 0 and (r["on_hand"] or 0) <= 0:
+            r["speed"] = "Hết hàng"
+        elif r["qty"] == 0 and (r["on_hand"] or 0) > 0:
             r["speed"] = "Tồn không bán"
         elif r["days_of_stock"] is not None and r["days_of_stock"] > 90:
             r["speed"] = "Chậm"
@@ -634,3 +642,74 @@ def sales_board(from_d, to_d, basis="customer", ym=None, weekly=False):
             "teams": sorted([g for g in teams.values() if g["total"] or g["target"] or g["returns"]],
                             key=lambda g: -g["total"]), "cats": CAT_KEYS,
             "alloc": alloc, "weeks": weeks}
+
+
+# ---------------------------------------------------------------------------
+# CÔNG NỢ & TUỔI NỢ
+# ---------------------------------------------------------------------------
+def debt_term():
+    """Số ngày cho nợ trước khi coi là quá hạn (30/60/90, đặt ở trang Công nợ)."""
+    try:
+        v = int(db.get_meta("debt_term_days") or 30)
+    except ValueError:
+        v = 30
+    return v if v in (30, 60, 90) else 30
+
+
+def debt_aging(sale=None):
+    """Tuổi nợ từng khách.
+
+    KiotViet chỉ cho biết tổng nợ hiện tại của khách, không cho biết hoá đơn nào
+    còn nợ. Ở đây coi tiền khách trả là trả cho hoá đơn cũ trước, nên phần còn nợ
+    nằm ở các hoá đơn mới nhất: đi ngược từ hoá đơn mới về cũ cho tới khi đủ số nợ.
+    Phần nợ lớn hơn tổng hoá đơn đang có trong CRM được xếp vào nhóm trên 90 ngày.
+    """
+    sf, sp = _sale_filter(sale)
+    today = date.today()
+    term = debt_term()
+    custs = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} sale, c.debt,
+        COALESCE(c.is_boss,0) is_boss FROM customers c WHERE c.debt > 0 {sf} ORDER BY c.debt DESC""", sp)
+    invs = {}
+    for r in db.rows(f"""SELECT i.customer_id cid, substr(i.purchase_date,1,10) d, i.total
+        FROM invoices i JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND c.debt > 0 AND i.total > 0 {sf}
+        ORDER BY i.customer_id, i.purchase_date DESC""", sp):
+        invs.setdefault(r["cid"], []).append(r)
+
+    keys = ("b0", "b1", "b2", "b3")
+    over_keys = {30: keys[1:], 60: keys[2:], 90: keys[3:]}[term]
+    for c in custs:
+        c.update(b0=0, b1=0, b2=0, b3=0, oldest_days=None, older=False)
+        left = c["debt"]
+        mine = invs.get(c["id"], [])
+        c["last_purchase"] = mine[0]["d"] if mine else None
+        c["days_since_last"] = (today - date.fromisoformat(mine[0]["d"])).days if mine else None
+        for i in mine:
+            if left <= 0.5:
+                break
+            take = min(left, i["total"])
+            age = (today - date.fromisoformat(i["d"])).days
+            c["b0" if age <= 30 else "b1" if age <= 60 else "b2" if age <= 90 else "b3"] += take
+            c["oldest_days"] = age
+            left -= take
+        if left > 0.5:                       # nợ có từ trước khoảng dữ liệu CRM đang giữ
+            c["b3"] += left
+            c["older"] = True
+        c["overdue"] = sum(c[k] for k in over_keys)
+        # nợ quá hạn mà đã lâu không mua nữa thì khả năng mất cao
+        c["risk"] = bool(c["overdue"] > 0 and (c["days_since_last"] is None or c["days_since_last"] > 60))
+
+    by_sale = {}
+    for c in custs:
+        g = by_sale.setdefault(c["sale"], {"sale": c["sale"], "customers": 0, "debt": 0, "overdue": 0,
+                                           "b0": 0, "b1": 0, "b2": 0, "b3": 0})
+        g["customers"] += 1
+        for k in ("debt", "overdue") + keys:
+            g[k] += c[k]
+    pre = db.one(f"SELECT COUNT(*) n, COALESCE(SUM(c.debt),0) v FROM customers c WHERE c.debt < 0 {sf}", sp)
+    return {"term": term, "rows": custs, "by_sale": sorted(by_sale.values(), key=lambda g: -g["debt"]),
+            "total": sum(c["debt"] for c in custs), "overdue": sum(c["overdue"] for c in custs),
+            "overdue_customers": sum(1 for c in custs if c["overdue"] > 0),
+            "risk_customers": sum(1 for c in custs if c["risk"]),
+            "buckets": {k: sum(c[k] for c in custs) for k in keys},
+            "prepaid": {"n": pre["n"], "v": -pre["v"]}, "as_of": db.get_meta("last_sync")}

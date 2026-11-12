@@ -13,16 +13,14 @@ from . import config, db, sync, reports, excel, backup, gsheet
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
-from .main_auth import signer, COOKIE, _hash, current_user  # noqa
+from .main_auth import signer, COOKIE, _hash, current_user, scope, allowed, is_mgr, team_names, col_in  # noqa
 from . import extras
 app.include_router(extras.router)
 
 
 def sale_scope(user, sale):
-    """Sale chỉ xem dữ liệu của mình; admin/kế toán xem tất cả (có thể lọc)."""
-    if user.get("role") == "sale":
-        return user.get("sale_name") or "__none__"
-    return sale or None
+    """Sale xem của mình, trưởng nhóm xem cả team, admin/kế toán xem tất cả (có thể lọc)."""
+    return scope(user, sale)
 
 
 @app.post("/api/login")
@@ -111,7 +109,11 @@ def run_sync(full: bool = False, user=Depends(current_user)):
 
 @app.get("/api/sales")
 def sales(user=Depends(current_user)):
-    return reports.sales_list()
+    allnames = reports.sales_list()
+    if user.get("role") == "lead":            # trưởng nhóm chỉ lọc trong team mình
+        mine = team_names(user) or []
+        return [x for x in allnames if x in mine] or mine
+    return allnames
 
 
 @app.post("/api/settings")
@@ -165,7 +167,7 @@ async def gsheet_config(request: Request, user=Depends(current_user)):
 
 @app.post("/api/gsheet/export")
 async def gsheet_export(request: Request, user=Depends(current_user)):
-    if user["role"] not in ("admin", "manager"):
+    if not is_mgr(user):
         raise HTTPException(403)
     b = await request.json()
     f, t = (b.get("from") or "").strip(), (b.get("to") or "").strip()
@@ -202,7 +204,7 @@ def overview(from_d: str = Query(None, alias="from"), to_d: str = Query(None, al
     f, t = _dates(from_d, to_d)
     s = sale_scope(user, sale)
     today = date.today().isoformat()
-    tcond, tp = ("", ()) if user["role"] != "sale" else (" AND assigned_to=?", (user.get("sale_name") or "",))
+    tcond, tp = col_in("assigned_to", scope(user))
     return {"summary": reports.revenue_summary(f, t, s), "birthdays": reports.birthdays(7, s)[:10],
             "journey": reports.order_journey(f, t, s)["funnel"],
             "tasks_today": db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date=? {tcond}", (today,) + tp)["n"],
@@ -212,10 +214,7 @@ def overview(from_d: str = Query(None, alias="from"), to_d: str = Query(None, al
 @app.get("/api/report/sales")
 def r_sales(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), user=Depends(current_user)):
     f, t = _dates(from_d, to_d)
-    rows = reports.customers_by_sale(f, t)
-    if user["role"] == "sale":
-        rows = [r for r in rows if r["sale"] == user.get("sale_name")]
-    return rows
+    return [r for r in reports.customers_by_sale(f, t) if allowed(user, r["sale"])]
 
 
 @app.get("/api/report/trend")
@@ -256,7 +255,7 @@ def c_detail(cid: int, user=Depends(current_user)):
     d = reports.customer_detail(cid)
     if not d:
         raise HTTPException(404)
-    if user["role"] == "sale" and d["customer"]["sale"] != user.get("sale_name"):
+    if not allowed(user, d["customer"]["sale"]):
         raise HTTPException(403)
     return d
 
@@ -305,8 +304,13 @@ async def users_save(request: Request, user=Depends(current_user)):
         pw = _hash(b["password"]) if b.get("password") else (existing["password"] if existing else None)
         if not pw:
             raise HTTPException(400, "Thiếu mật khẩu")
+        role = b.get("role", "sale")
+        if role not in ("accountant", "lead", "sale"):
+            raise HTTPException(400, "Vai trò không hợp lệ")
+        if role in ("lead", "sale") and not b.get("sale_name"):
+            raise HTTPException(400, "Tài khoản Sale / Trưởng nhóm phải chọn tên sale")
         con.execute("INSERT OR REPLACE INTO crm_users(username,password,role,sale_name,display_name) VALUES(?,?,?,?,?)",
-                    (b["username"], pw, b.get("role", "sale"), b.get("sale_name"), b.get("display_name")))
+                    (b["username"], pw, role, b.get("sale_name"), b.get("display_name")))
     return {"ok": True}
 
 
@@ -348,9 +352,7 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
     s = sale_scope(user, sale)
     sheets = []
     if report == "sales":
-        rows = reports.customers_by_sale(f, t)
-        if user["role"] == "sale":
-            rows = [r for r in rows if r["sale"] == user.get("sale_name")]
+        rows = [r for r in reports.customers_by_sale(f, t) if allowed(user, r["sale"])]
         sheets.append(("Khach theo sale", [("sale", "Sale"), ("total_customers", "Tổng KH"), ("new_customers", "KH mới"),
                         ("new_customers_prev", "KH mới kỳ trước"), ("buying_customers", "KH có mua"), ("buying_customers_prev", "KH có mua kỳ trước"),
                         ("customer_growth", "Tăng/giảm KH %", P), ("first_time_buyers", "Mua lần đầu"), ("gained_vs_prev", "KH quay lại/mới"),
@@ -368,7 +370,7 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
     elif report == "products":
         sheets.append(("Hang nhanh cham", [("code", "Mã hàng"), ("name", "Tên hàng"), ("category_name", "Nhóm hàng"), ("speed", "Tốc độ"),
                         ("qty", "SL bán"), ("qty_returned", "SL trả"), ("qty_prev", "SL kỳ trước"), ("growth", "Tăng/giảm %", P), ("returned", "Hàng trả", M), ("revenue", "Doanh số", M), ("qty_per_day", "SL/ngày"),
-                        ("on_hand", "Tồn kho"), ("days_of_stock", "Ngày tồn còn"), ("stock_value", "Giá trị tồn", M), ("last_sold", "Bán gần nhất"),
+                        ("on_hand", "Tồn kho"), ("days_of_stock", "Ngày tồn còn"), ("reorder_qty", "Đề xuất nhập (đủ 30 ngày)"), ("stock_value", "Giá trị tồn", M), ("last_sold", "Bán gần nhất"),
                         ("days_since_sold", "Ngày chưa bán")], reports.product_velocity(f, t, s)))
     elif report == "journey":
         j = reports.order_journey(f, t, s)
@@ -380,7 +382,19 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("Theo sale", [("sale", "Sale"), ("n", "Đơn"), ("done", "Hoàn thành"), ("cancelled", "Hủy"), ("pending", "Đang xử lý"), ("total", "Giá trị HT", M)], j["by_sale"]))
         sheets.append(("Don dang ket", [("code", "Mã đơn"), ("purchase_date", "Ngày"), ("customer_name", "Khách"), ("sold_by_name", "Sale"), ("status", "Trạng thái"),
                         ("delivery_status_value", "Giao hàng"), ("age_days", "Số ngày"), ("total", "Giá trị", M)], j["stuck"]))
+    elif report == "debts":
+        d = reports.debt_aging(s)
+        sheets.append(("Cong no", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"),
+                        ("debt", "Tổng nợ", M), ("b0", "0-30 ngày", M), ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M),
+                        ("b3", "Trên 90 ngày", M), ("overdue", f"Quá hạn (>{d['term']} ngày)", M),
+                        ("oldest_days", "Khoản cũ nhất (ngày)"), ("last_purchase", "Mua gần nhất"),
+                        ("days_since_last", "Số ngày chưa mua")], d["rows"]))
+        sheets.append(("Theo sale", [("sale", "Sale"), ("customers", "Số KH nợ"), ("debt", "Tổng nợ", M), ("b0", "0-30 ngày", M),
+                        ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M), ("b3", "Trên 90 ngày", M),
+                        ("overdue", "Quá hạn", M)], d["by_sale"]))
     elif report == "board":
+        if not is_mgr(user):
+            raise HTTPException(403)
         basis = db.get_meta("report_basis") or "customer"
         b = reports.sales_board(f, t, basis)
         cols = ([("team", "Team"), ("sale", "Sale"), ("target", "Mục tiêu", M), ("rev_sale", "DS khách sale", M)]

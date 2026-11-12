@@ -13,10 +13,11 @@ log = logging.getLogger("backup")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads", "teams"]
 SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis",
-                "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl"]
+                "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl", "debt_term_days"]
 SNAPSHOT_EVERY_HOURS = int(os.getenv("SNAPSHOT_EVERY_HOURS", "6"))
 _lock = threading.Lock()
 _db_lock = threading.Lock()
+_snapshot_ts = None   # thời điểm của bản sao toàn bộ DB vừa được nạp lại lúc khởi động (nếu có)
 
 
 def enabled():
@@ -74,21 +75,38 @@ def restore():
         pg = _pg()
         cur = pg.cursor()
         _ensure(cur)
-        cur.execute("SELECT tbl, rows FROM crm_backup")
-        data = {t: r for t, r in cur.fetchall()}
+        cur.execute("SELECT tbl, rows, updated FROM crm_backup")
+        got = cur.fetchall()
+        data = {t: r for t, r, _ in got}
+        stamp = {t: u for t, _, u in got}
         pg.close()
     except Exception:
         log.exception("backup restore failed (bỏ qua)")
         return
     if not data:
         return
+
+    def newer(t):
+        """Bản sao lưu của bảng này có mới hơn bản sao toàn bộ DB vừa nạp không.
+
+        Bản sao toàn bộ DB chỉ chụp vài giờ một lần, còn dữ liệu nhập tay được lưu
+        sau mỗi thao tác. Nếu giữ nguyên dữ liệu trong bản chụp thì mọi thay đổi
+        (xếp team, việc, khách tiềm năng…) sau lần chụp cuối sẽ mất mỗi khi deploy.
+        """
+        try:
+            return _snapshot_ts is not None and t in data and stamp.get(t) is not None and stamp[t] > _snapshot_ts
+        except TypeError:
+            return False
+
     with db.cursor() as con:
         for t in TABLES:
             rows = data.get(t) or []
             if isinstance(rows, str):
                 rows = json.loads(rows)
             have = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-            if have or not rows:
+            if newer(t):
+                con.execute(f"DELETE FROM {t}")          # thay bằng bản mới hơn
+            elif have or not rows:
                 continue  # SQLite đã có dữ liệu -> giữ nguyên, không ghi đè
             cols = [r[1] for r in con.execute(f"PRAGMA table_info({t})")]
             for r in rows:
@@ -96,8 +114,15 @@ def restore():
                 con.execute(f"INSERT OR IGNORE INTO {t}({','.join(keys)}) VALUES({','.join('?' * len(keys))})", [r[k] for k in keys])
             log.info("restored %s: %d rows", t, len(rows))
         for r in (json.loads(data["settings"]) if isinstance(data.get("settings"), str) else (data.get("settings") or [])):
-            if not con.execute("SELECT 1 FROM meta WHERE key=?", (r["key"],)).fetchone():
+            if newer("settings"):
+                con.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (r["key"], r["value"]))
+            elif not con.execute("SELECT 1 FROM meta WHERE key=?", (r["key"],)).fetchone():
                 con.execute("INSERT INTO meta(key,value) VALUES(?,?)", (r["key"], r["value"]))
+        if newer("customer_boss"):
+            con.execute("UPDATE customers SET is_boss=0, boss_no_kpi=0")
+        if newer("customer_manual"):
+            con.execute("UPDATE customers SET sale_manual=NULL")
         for r in (json.loads(data["customer_boss"]) if isinstance(data.get("customer_boss"), str) else (data.get("customer_boss") or [])):
             con.execute("UPDATE customers SET is_boss=1, boss_no_kpi=? WHERE id=?", (r.get("boss_no_kpi", 0), r["id"]))
         cm = data.get("customer_manual") or []
@@ -240,6 +265,8 @@ def restore_db():
         with open(path, "wb") as f:
             f.write(raw)
         log.info("db restored from snapshot %s (%s, %.1f MB)", row[3], row[2], len(raw) / 1e6)
+        global _snapshot_ts
+        _snapshot_ts = row[3]
         try:
             db.set_meta("db_snapshot_at", row[3].replace(tzinfo=None).isoformat(timespec="seconds"))
             db.set_meta("db_snapshot_bytes", str(row[1]))

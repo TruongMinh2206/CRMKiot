@@ -2,14 +2,14 @@
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from . import db, reports, config
-from .main_auth import current_user
+from .main_auth import current_user, scope, allowed, col_in, is_mgr
 
 router = APIRouter(prefix="/api")
 
 LEAD_STATUS = ["new", "contacted", "consulting", "won", "lost"]
 LEAD_LABEL = {"new": "Mới", "contacted": "Đã liên hệ", "consulting": "Đang tư vấn", "won": "Đã chốt", "lost": "Thất bại"}
 TASK_TYPES = {"call": "Gọi điện", "visit": "Ghé thăm", "message": "Nhắn tin", "birthday": "Chúc sinh nhật",
-              "reorder": "Nhắc mua lại", "winback": "Kéo lại KH", "other": "Khác"}
+              "reorder": "Nhắc mua lại", "winback": "Kéo lại KH", "debt": "Nhắc công nợ", "other": "Khác"}
 
 
 def _now():
@@ -17,11 +17,12 @@ def _now():
 
 
 def _is_mgr(user):
-    return user["role"] in ("admin", "accountant")
+    return is_mgr(user)
 
 
 def _my_sale(user):
-    return user.get("sale_name") if user["role"] == "sale" else None
+    """Tên sale của chính người đăng nhập — dùng làm mặc định khi giao việc, tạo lead."""
+    return user.get("sale_name") if user["role"] in ("sale", "lead") else None
 
 
 # ===========================================================================
@@ -62,8 +63,7 @@ def kpi_report(ym):
 def kpi_get(ym: str = None, user=Depends(current_user)):
     ym = ym or date.today().strftime("%Y-%m")
     r = kpi_report(ym)
-    if user["role"] == "sale":
-        r["rows"] = [x for x in r["rows"] if x["sale"] == user.get("sale_name")]
+    r["rows"] = [x for x in r["rows"] if allowed(user, x["sale"])]
     return r
 
 
@@ -103,10 +103,7 @@ async def kpi_copy(request: Request, user=Depends(current_user)):
 # ===========================================================================
 @router.get("/tasks")
 def tasks_list(status: str = "open", sale: str = None, days: int = 7, user=Depends(current_user)):
-    s = _my_sale(user) or sale
-    cond, p = "", ()
-    if s:
-        cond, p = " AND t.assigned_to=?", (s,)
+    cond, p = col_in("t.assigned_to", scope(user, sale))
     if status == "open":
         rows = db.rows(f"""SELECT t.*, c.name customer_name, c.contact_number, c.code customer_code, l.name lead_name, l.phone lead_phone
             FROM tasks t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN leads l ON l.id=t.lead_id
@@ -163,7 +160,7 @@ async def tasks_bulk(request: Request, user=Depends(current_user)):
 @router.get("/tasks/suggest")
 def tasks_suggest(sale: str = None, user=Depends(current_user)):
     """Gợi ý việc tự động: sinh nhật, ngừng mua, đến kỳ mua lại."""
-    s = _my_sale(user) or sale
+    s = scope(user, sale)
     sf, sp = reports._sale_filter(s)
     today = date.today()
     out = []
@@ -207,6 +204,17 @@ def tasks_suggest(sale: str = None, user=Depends(current_user)):
                     "reason": f"Không mua từ {r['l'][8:10]}/{r['l'][5:7]}, DS tích luỹ {round(r['rev']/1e6)} tr, {r['n']} HĐ",
                     "due_date": today.isoformat(), "type": "winback", "title": f"Kéo lại KH: {r['name']}", "auto_key": key,
                     "exists": key in existing, "priority": 1, "revenue": r["rev"]})
+
+    # 4. Công nợ quá hạn: mỗi khách nhắc một lần mỗi tháng
+    debts = [c for c in reports.debt_aging(s)["rows"] if c["overdue"] > 0]
+    debts.sort(key=lambda c: -c["overdue"])
+    for c in debts[:60]:
+        key = f"debt:{c['id']}:{today.strftime('%Y-%m')}"
+        out.append({"kind": "debt", "customer_id": c["id"], "customer_name": c["name"], "phone": c["contact_number"], "sale": c["sale"],
+                    "reason": f"Nợ quá hạn {round(c['overdue']/1e6, 1)} tr / tổng nợ {round(c['debt']/1e6, 1)} tr"
+                              + (f", khoản cũ nhất {c['oldest_days']} ngày" if c["oldest_days"] is not None else ""),
+                    "due_date": today.isoformat(), "type": "debt", "title": f"Nhắc công nợ: {c['name']}", "auto_key": key,
+                    "exists": key in existing, "priority": 2 if c["risk"] else 1, "revenue": c["overdue"]})
     return out
 
 
@@ -215,10 +223,10 @@ def tasks_suggest(sale: str = None, user=Depends(current_user)):
 # ===========================================================================
 @router.get("/leads")
 def leads_list(status: str = None, sale: str = None, q: str = "", user=Depends(current_user)):
-    s = _my_sale(user) or sale
     cond, p = [], []
-    if s:
-        cond.append("sale=?"); p.append(s)
+    c0, p0 = col_in("sale", scope(user, sale))
+    if c0:
+        cond.append(c0[5:]); p += list(p0)
     if status:
         cond.append("status=?"); p.append(status)
     if q:
@@ -232,12 +240,10 @@ def leads_list(status: str = None, sale: str = None, q: str = "", user=Depends(c
 
 @router.get("/leads/stats")
 def leads_stats(from_d: str = None, to_d: str = None, sale: str = None, user=Depends(current_user)):
-    s = _my_sale(user) or sale
     f = from_d or (date.today() - timedelta(days=90)).isoformat()
     t = (to_d or date.today().isoformat()) + "T23:59"
-    cond, p = "", (f, t)
-    if s:
-        cond, p = " AND sale=?", (f, t, s)
+    cond, p0 = col_in("sale", scope(user, sale))
+    p = (f, t) + p0
     by = lambda col: db.rows(f"""SELECT COALESCE({col},'(trống)') k, COUNT(*) n, SUM(status='won') won, SUM(status='lost') lost,
         COALESCE(SUM(CASE WHEN status='won' THEN value END),0) won_value FROM leads WHERE created BETWEEN ? AND ? {cond} GROUP BY 1 ORDER BY n DESC""", p)
     funnel = db.one(f"""SELECT COUNT(*) total, SUM(status='new') new, SUM(status='contacted') contacted, SUM(status='consulting') consulting,
@@ -275,8 +281,9 @@ async def leads_save(request: Request, user=Depends(current_user)):
 async def leads_status(request: Request, user=Depends(current_user)):
     b = await request.json()
     with db.cursor() as con:
-        con.execute("UPDATE leads SET status=?, lost_reason=COALESCE(?,lost_reason), updated=? WHERE id=?",
-                    (b["status"], b.get("lost_reason"), _now(), b["id"]))
+        val = float(b["value"]) if b.get("value") else None      # giá trị thực khi chốt
+        con.execute("UPDATE leads SET status=?, lost_reason=COALESCE(?,lost_reason), value=COALESCE(?,value), updated=? WHERE id=?",
+                    (b["status"], b.get("lost_reason"), val, _now(), b["id"]))
     return {"ok": True}
 
 
@@ -339,11 +346,10 @@ def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias
     basis = basis or db.get_meta("report_basis") or "customer"
     b = reports.sales_board(f, t, basis, weekly=bool(weekly))
     b["cancelled_list"] = reports.cancelled_invoices(f, t)
-    if user["role"] == "sale":
-        me = user.get("sale_name")
-        b["rows"] = [r for r in b["rows"] if r["sale"] == me]
+    if not is_mgr(user):
+        b["rows"] = [r for r in b["rows"] if allowed(user, r["sale"])]
         b["teams"] = [g for g in b["teams"] if any(r["team"] == g["team"] for r in b["rows"])]
-        b["cancelled_list"] = [r for r in b["cancelled_list"] if r["sale"] == me]
+        b["cancelled_list"] = [r for r in b["cancelled_list"] if allowed(user, r["sale"])]
     return b
 
 
@@ -438,3 +444,76 @@ async def boss_save(request: Request, user=Depends(current_user)):
                 cur = con.execute("UPDATE customers SET is_boss=1 WHERE code=? OR name=?", (v, v))
                 n += cur.rowcount
     return {"ok": True, "updated": n}
+
+
+# ===========================================================================
+# Công nợ & tuổi nợ
+# ===========================================================================
+@router.get("/debts")
+def debts_get(sale: str = None, user=Depends(current_user)):
+    return reports.debt_aging(scope(user, sale))
+
+
+@router.post("/debts/term")
+async def debts_term(request: Request, user=Depends(current_user)):
+    if not is_mgr(user):
+        raise HTTPException(403)
+    b = await request.json()
+    try:
+        v = int(b.get("days"))
+    except (TypeError, ValueError):
+        v = 0
+    if v not in (30, 60, 90):
+        raise HTTPException(400, "Hạn nợ chỉ nhận 30, 60 hoặc 90 ngày")
+    db.set_meta("debt_term_days", str(v))
+    return {"ok": True, "term": v}
+
+
+# ===========================================================================
+# Cảnh báo đầu ngày ở trang Tổng quan
+# ===========================================================================
+@router.get("/alerts")
+def alerts(user=Depends(current_user)):
+    s = scope(user)
+    today = date.today()
+    out = []
+
+    d = reports.debt_aging(s)
+    if d["overdue_customers"]:
+        out.append({"key": "debt", "level": "bad", "n": d["overdue_customers"], "amount": d["overdue"], "href": "#debts",
+                    "title": "Khách nợ quá hạn", "note": f"quá {d['term']} ngày"
+                    + (f" · {d['risk_customers']} khách đã ngừng mua trên 60 ngày" if d["risk_customers"] else "")})
+
+    c, p = col_in("assigned_to", s)
+    n = db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date<? {c}", (today.isoformat(),) + p)["n"]
+    if n:
+        out.append({"key": "tasks", "level": "bad", "n": n, "href": "#tasks", "title": "Việc quá hạn", "note": "chưa đánh dấu xong"})
+
+    sug = [x for x in tasks_suggest(sale=None, user=user) if not x["exists"]]
+    wb = [x for x in sug if x["kind"] == "winback"]
+    if wb:
+        out.append({"key": "winback", "level": "warn", "n": len(wb), "amount": sum(x["revenue"] or 0 for x in wb), "href": "#tasks",
+                    "title": "Khách giá trị đang ngừng mua", "note": "chưa có việc chăm sóc · số tiền là doanh số tích luỹ"})
+    ro = [x for x in sug if x["kind"] == "reorder"]
+    if ro:
+        out.append({"key": "reorder", "level": "info", "n": len(ro), "href": "#tasks",
+                    "title": "Khách đến kỳ mua lại", "note": "quá chu kỳ mua trung bình, chưa có việc nhắc"})
+
+    c, p = col_in("sale", s)
+    stale = db.one(f"""SELECT COUNT(*) n, COALESCE(SUM(value),0) v FROM leads
+        WHERE status NOT IN ('won','lost') AND updated < ? {c}""", ((today - timedelta(days=7)).isoformat(),) + p)
+    if stale["n"]:
+        out.append({"key": "leads", "level": "warn", "n": stale["n"], "amount": stale["v"] or None, "href": "#leads",
+                    "title": "Khách tiềm năng bị bỏ quên", "note": "hơn 7 ngày chưa cập nhật"})
+
+    f30 = (today - timedelta(days=29)).isoformat()
+    pv = reports.product_velocity(f30, today.isoformat())
+    oos = [r for r in pv if r["speed"] == "Hết hàng"]
+    low = [r for r in pv if r["speed"] == "Nhanh (sắp hết)"]
+    if oos:
+        out.append({"key": "oos", "level": "bad", "n": len(oos), "amount": sum(r["revenue"] for r in oos), "href": "#products",
+                    "title": "Mặt hàng đang bán đã hết tồn", "note": "số tiền là doanh số 30 ngày qua của các mã này"})
+    if low:
+        out.append({"key": "low", "level": "warn", "n": len(low), "href": "#products",
+                    "title": "Mặt hàng sắp hết", "note": "tồn còn dưới 14 ngày bán"})
+    return out

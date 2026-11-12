@@ -205,7 +205,11 @@ def sync_all(full=False):
 
         state["progress"] = "Khách hàng"
         with db.cursor() as con:
-            for c in k.customers(last_from):
+            # KiotViet không phải lúc nào cũng đổi ngày sửa của khách khi công nợ thay đổi,
+            # nên mỗi ngày tải lại toàn bộ khách một lần để số nợ ở trang Công nợ đúng
+            day = datetime.now().strftime("%Y-%m-%d")
+            cust_from = last_from if db.get_meta("cust_full_day") == day else None
+            for c in k.customers(cust_from):
                 counts["customers"] += 1
                 con.execute("""INSERT INTO customers(id,code,name,gender,birth_date,contact_number,email,address,location_name,
                     ward_name,organization,comments,groups,branch_id,created_by,created_date,modified_date,debt,total_invoiced,
@@ -218,7 +222,7 @@ def sync_all(full=False):
                     branch_id=excluded.branch_id,created_by=excluded.created_by,created_date=excluded.created_date,
                     modified_date=excluded.modified_date,debt=excluded.debt,total_invoiced=excluded.total_invoiced,
                     total_revenue=excluded.total_revenue,total_point=excluded.total_point,reward_point=excluded.reward_point,
-                    is_active=excluded.is_active,sale_name=excluded.sale_name,raw=excluded.raw""",
+                    is_active=excluded.is_active,raw=excluded.raw""",
                             (c["id"], c.get("code"), c.get("name"), 1 if c.get("gender") else 0, _d(c.get("birthDate")),
                              c.get("contactNumber"), c.get("email"), c.get("address"), c.get("locationName"), c.get("wardName"),
                              c.get("organization"), c.get("comments"), c.get("groups"), c.get("branchId"), c.get("createdBy"),
@@ -228,8 +232,12 @@ def sync_all(full=False):
                 if counts["customers"] % 500 == 0:
                     state["progress"] = f"Khách hàng: {counts['customers']}"
 
+        db.set_meta("cust_full_day", day)
+
         state["progress"] = "Hàng hoá"
-        prod_from = None if db.get_meta("trade_mark_filled") != "1" else last_from
+        # luôn tải toàn bộ hàng hoá: bán hàng làm tồn kho đổi nhưng KiotViet không đổi
+        # ngày sửa của mã hàng, tải theo ngày sửa thì tồn kho trong CRM bị cũ
+        prod_from = None
         with db.cursor() as con:
             for p in k.products(prod_from):
                 counts["products"] += 1
