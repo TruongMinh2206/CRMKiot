@@ -147,7 +147,7 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 // ============================================================================
 const isMgr=()=>['admin','accountant'].includes(state.user.role);
 const ROLE={admin:'Quản trị',accountant:'Kế toán',lead:'Trưởng nhóm',sale:'Sale'};
-const PAGES=[['overview','Tổng quan','◫'],['board','Bảng doanh số','▦'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['debts','Công nợ','💳'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
+const PAGES=[['overview','Tổng quan','◫'],['board','Bảng doanh số','▦'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['campaign','Thưởng chiến dịch','🎁'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['debts','Công nợ','💳'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
 function render(){
   const root=$('#root');
   if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
@@ -193,7 +193,7 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // Pages
 // ============================================================================
 async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -321,6 +321,65 @@ async function debts(){
 async function debtTask(id){const r=(window._debts||[]).find(x=>x.id===id);if(!r)return;
   const res=await api('/tasks',{method:'POST',body:{customer_id:id,title:'Nhắc công nợ: '+r.name,type:'debt',due_date:iso(new Date()),assigned_to:r.sale==='(Chưa gán)'?'':r.sale,auto_key:'debt:'+id+':'+iso(new Date()).slice(0,7),priority:r.risk?2:1}});
   toast(res.id?(r.sale&&r.sale!=='(Chưa gán)'?'Đã tạo việc nhắc nợ cho '+r.sale:'Đã tạo việc nhắc nợ (khách chưa gán sale)'):'Tháng này đã có việc nhắc nợ cho khách này')}
+
+// ============================================================================
+// Thưởng chiến dịch
+// ============================================================================
+async function campaign(){
+  const d=await api('/campaign');const m=$('#main');const T=d.totals;window._camp=d;const mgr=isMgr();
+  const owners=[...new Set(d.groups.map(g=>g.owner).filter(Boolean))].sort();
+  const val=r=>r.unit==='amount'?fmt(r.value)+' đ':fmt(r.value)+' '+r.unit_label;
+  m.innerHTML=topbar('Thưởng chiến dịch',{dates:false,sale:false,exportKey:'campaign',extra:`<input class="f" id="fQ" placeholder="Tìm khách / mã KH"><select class="f" id="fP"><option value="">Tất cả chương trình</option>${d.programs.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select><select class="f" id="fO"><option value="">Tất cả người phụ trách</option>${owners.map(o=>`<option>${esc(o)}</option>`).join('')}</select><select class="f" id="fS"><option value="">Mọi trạng thái</option><option value="won">Đã đạt thưởng</option><option value="near">Sắp đạt mốc (từ 80%)</option><option value="idle">Chưa bắt đầu</option><option value="diff">Lệch so với sheet</option></select>${mgr?'<button class="btn primary" id="bNewC">+ Thêm khách</button>':''}${state.user.role==='admin'?'<label class="btn" title="Nạp danh sách khách và chương trình từ file JSON. Dòng đã có thì bỏ qua.">⬆ Nhập từ file<input type="file" id="fImp" accept=".json,application/json" style="display:none"></label>':''}`})+
+  `<div class="grid g4"><div class="card tile"><h3>Tổng vé Hàn Quốc</h3><div class="v">${fmt(T.tickets)}</div><div class="d">cộng lẻ ${String(T.tickets_exact).replace('.',',')} vé · làm tròn từng dòng như ô tổng của sheet</div></div>
+   <div class="card tile"><h3>Tổng thưởng đô</h3><div class="v">${fmt(T.usd)}$</div><div class="d">Nghệ, Eundan, Enzym</div></div>
+   <div class="card tile"><h3>Khách / team tham gia</h3><div class="v">${fmt(T.groups)}</div><div class="d">${fmt(d.groups.reduce((a,g)=>a+g.rows.length,0))} dòng chương trình</div></div>
+   <div class="card tile"><h3>Chưa bắt đầu</h3><div class="v" style="color:var(--warn)">${fmt(T.not_started)}</div><div class="d">chưa có ngày bắt đầu nên chưa tính</div></div></div>
+  <div class="card" style="margin-top:14px"><h3>Tiến độ từng khách <span class="x">tính từ hoá đơn KiotViet đến ${d.as_of?dmy(d.as_of)+' '+d.as_of.slice(11,16):'—'}</span></h3><div class="tablewrap"><table id="t"><thead><tr><th>STT</th><th>Khách / Team</th><th>Chương trình</th><th>Bắt đầu</th><th class="r">Dư mang sang</th><th class="r">Số thực đạt</th><th>Kết quả</th><th style="min-width:190px">Tới mốc kế tiếp</th><th>Đơn gần nhất</th><th>Ghi chú</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>
+   <p class="small muted">Chỉ tính dòng hàng có tiền (hàng tặng 0 đồng không tính), đã trừ hàng trả. Hoá đơn sửa (mã đuôi .01, .02…) chỉ tính một lần theo bản đang có hiệu lực và lấy ngày của hoá đơn gốc. Mỗi dòng chỉ tính từ ngày bắt đầu của riêng khách đó, cộng phần dư mang sang từ chương trình trước.</p>
+   <p class="small muted">${d.programs.map(p=>`<b>${esc(p.name)}</b>: ${esc(p.hint)}`).join(' &nbsp;·&nbsp; ')}</p></div>`;
+  bindTopbar('campaign');
+  const state2=r=>!r.started?'idle':(r.tickets>=1||r.usd>0)?'won':'';
+  const draw=()=>{const q=($('#fQ').value||'').toLowerCase(),fp=$('#fP').value,fo=$('#fO').value,fs=$('#fS').value;let html='';
+    d.groups.forEach(g=>{if(fo&&g.owner!==fo)return;if(q&&!(g.grp.toLowerCase().includes(q)||g.customers.some(c=>(c.code||'').toLowerCase().includes(q)||(c.name||'').toLowerCase().includes(q))))return;
+      const rows=g.rows.filter(r=>(!fp||r.program===fp)&&(!fs||(fs==='idle'&&!r.started)||(fs==='won'&&state2(r)==='won')||(fs==='near'&&r.started&&r.pct>=80)||(fs==='diff'&&r.sheet_value!=null&&Math.abs(r.value-r.sheet_value)>=1)));
+      rows.forEach((r,i)=>{const dif=r.sheet_value!=null&&Math.abs(r.value-r.sheet_value)>=1;const st=r.entries.map(e=>e.start_at).filter(Boolean).sort()[0];
+        html+=`<tr ${i===0?'style="border-top:2px solid var(--border)"':''}><td class="muted">${i===0?(g.stt||''):''}</td><td class="name">${i===0?`<b>${esc(g.grp)}</b><br><span class="small muted">${g.customers.map(c=>esc(c.code)).join(', ')}${g.owner?' · '+esc(g.owner):''}</span>`:''}</td>
+        <td><b>${esc(r.name)}</b><br><span class="small muted">${[r.reward,r.registered?'ĐK '+r.registered:'',r.entries.length>1?r.entries.length+' khách chạy chung':''].filter(Boolean).map(esc).join(' · ')}</span></td>
+        <td>${st?dmy(st):'<span class="tag warn">chưa có</span>'}</td><td class="r">${r.carry?fmt(r.carry):'<span class="muted">–</span>'}</td>
+        <td class="r"><b>${r.started?val(r):'–'}</b>${dif?`<br><span class="small" style="color:var(--warn)" title="Số trên sheet của kế toán lúc nhập vào CRM">sheet ${fmt(r.sheet_value)}${r.sheet_last?' · đến '+r.sheet_last.slice(8,10)+'/'+r.sheet_last.slice(5,7):''}</span>`:''}</td>
+        <td>${r.started?(r.text?`<span class="tag ${state2(r)==='won'?'good':''}" style="font-size:12px">${esc(r.text)}</span>`:'')+(r.gift?`<br><span class="small">đủ mốc: ${esc(r.gift)}</span>`:'')+(r.parts?`<br><span class="small muted">${esc(r.parts)}</span>`:''):'<span class="tag">Chưa bắt đầu</span>'}</td>
+        <td>${r.started&&r.pct!=null?`<div class="row" style="gap:6px"><div class="prog" style="flex:1"><i class="${r.pct<50?'low':r.pct<80?'mid':''}" style="width:${Math.max(0,Math.min(100,r.pct))}%"></i></div><b style="width:44px;text-align:right">${Math.round(r.pct)}%</b></div><span class="small muted">còn ${r.unit==='amount'?fmtK(r.next_gap):fmt(r.next_gap)+' '+r.unit_label} tới ${esc(r.next_label)}</span>`:''}</td>
+        <td>${r.last?dmy(r.last):'<span class="muted">–</span>'}</td><td class="name small">${esc(r.note)}${r.paid?`<br><b>Đã trả:</b> ${esc(r.paid)}`:''}</td>
+        <td><button class="btn small" onclick="openCamp(${JSON.stringify(g.grp).replace(/"/g,'&quot;')},'${r.program}')">Chi tiết</button></td></tr>`})});
+    $('#tb').innerHTML=html||'<tr><td colspan="11" class="empty">Không có dòng nào</td></tr>'};
+  $('#fQ').oninput=draw;['#fP','#fO','#fS'].forEach(x=>{$(x).onchange=draw});draw();
+  if(mgr)$('#bNewC').onclick=()=>campForm({});
+  const fi=$('#fImp');if(fi)fi.onchange=async()=>{const f=fi.files[0];if(!f)return;let data;try{data=JSON.parse(await f.text())}catch(e){toast('File không đọc được');return}
+    const r=await api('/campaign/import',{method:'POST',body:{entries:Array.isArray(data)?data:data.entries}});toast('Đã nạp '+r.added+' dòng, bỏ qua '+r.skipped);loadPage()};
+}
+async function openCamp(grp,program){
+  const d=await api('/campaign/detail?grp='+encodeURIComponent(grp)+'&program='+program);const g=(window._camp.groups||[]).find(x=>x.grp===grp)||{rows:[]};const r=g.rows.find(x=>x.program===program)||{entries:[]};const mb=$('#modalBody');const mgr=isMgr();const amt=d.unit==='amount';
+  const sum=d.rows.reduce((a,x)=>a+(amt?x.amt:x.q*x.k),0);
+  mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">${esc(grp)} · ${esc(d.name)} <span class="tag info">${esc(r.text||'')}</span></h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  <h3 style="margin-top:12px">Khách trong dòng này ${mgr?`<span class="x"><a href="#" onclick='campForm(${JSON.stringify({grp:grp,stt:g.stt,owner:g.owner,program:program}).replace(/'/g,"&#39;")});return false'>+ thêm khách chạy chung</a></span>`:''}</h3>
+  <table><thead><tr><th>Mã</th><th>Khách</th><th>Bắt đầu tính từ</th><th class="r">Dư mang sang</th><th class="r">Đã chạy</th><th></th></tr></thead><tbody>${r.entries.map(e=>`<tr><td class="muted">${esc(e.customer_code)}</td><td class="name">${esc(e.customer)}${e.member?` <span class="tag">${esc(e.member)}</span>`:''}</td><td>${e.start_at?dmy(e.start_at)+' '+e.start_at.slice(11,16):'<span class="tag warn">chưa đặt — chưa tính</span>'}${e.carry_note?`<br><span class="small muted">chốt chương trình cũ ${esc(e.carry_note)}</span>`:''}</td><td class="r">${fmt(amt?e.carry_amount:e.carry_qty)}</td><td class="r">${amt?fmt(e.amount):fmt(e.qty)}</td><td>${mgr?`<button class="btn small" onclick='campForm(${JSON.stringify(Object.assign({grp:grp,stt:g.stt,owner:g.owner,program:program},e)).replace(/'/g,"&#39;")})'>✎ Sửa</button>`:''}</td></tr>`).join('')}</tbody></table>
+  <h3 style="margin-top:14px">Các dòng hàng được tính <span class="x">${d.rows.length} dòng · tổng ${amt?fmt(sum)+' đ':fmt(sum)}</span></h3>
+  <div class="tablewrap" style="max-height:46vh"><table><thead><tr><th>Ngày</th><th>Mã HĐ</th>${r.entries.length>1?'<th>Khách</th>':''}<th>Sản phẩm</th><th class="r">SL</th>${amt?'':'<th class="r">Hệ số</th><th class="r">Tính</th>'}<th class="r">Doanh số</th></tr></thead><tbody>${d.rows.map(x=>`<tr><td>${x.d?dmy(x.d)+' '+x.d.slice(11,16):''}</td><td>${esc(x.code)}${x.edited?` <span class="tag warn" title="Hoá đơn đã sửa trên KiotViet — chỉ tính bản này, bản gốc đã huỷ${x.eff&&x.eff!==x.d?'. Ngày gốc '+dmy(x.eff):''}">sửa</span>`:''}${x.kind==='return'?' <span class="tag bad">trả hàng</span>':''}${x.kind==='carry'?' <span class="tag info">dư kỳ trước</span>':''}</td>${r.entries.length>1?`<td>${esc(x.member||'')}</td>`:''}<td class="name">${esc(x.pn)}</td><td class="r">${fmt(x.q)}</td>${amt?'':`<td class="r muted">×${x.k}</td><td class="r"><b>${fmt(x.q*x.k)}</b></td>`}<td class="r">${fmt(x.amt)}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">Chưa có dòng hàng nào được tính</td></tr>'}</tbody></table></div>`;
+  $('#modal').classList.add('open')}
+function campForm(e){const mb=$('#modalBody');const P=(window._camp.programs||[]);const f=(id,label,v,type='text',extra='')=>`<label>${label}<br><input class="f" id="${id}" type="${type}" value="${esc(v??'')}" style="width:100%" ${extra}></label>`;
+  mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">${e.id?'Sửa':'Thêm'} khách chạy chương trình</h2><button class="btn" onclick="closeModal()">✕</button></div>
+  <div class="grid g2" style="margin-top:12px">${f('cGrp','Tên khách / team (các khách cùng tên này được cộng chung)',e.grp)}${f('cStt','STT trên bảng',e.stt,'number')}
+  <label>Mã khách KiotViet *<br><input class="f" id="cCode" list="cList" value="${esc(e.customer_code||'')}" style="width:100%" placeholder="gõ tên hoặc mã để tìm"><datalist id="cList"></datalist></label>${f('cMem','Tên thành viên (nếu là team)',e.member)}
+  <label>Chương trình *<br><select class="f" id="cProg" style="width:100%">${P.map(p=>`<option value="${p.key}" ${p.key===e.program?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>${f('cOwner','Người phụ trách',e.owner)}
+  ${f('cStart','Bắt đầu tính từ (để trống = chưa tính)',(e.start_at||'').replace(' ','T').slice(0,16),'datetime-local')}${f('cEnd','Kết thúc (để trống = chưa chốt)',(e.end_at||'').slice(0,10),'date')}
+  ${f('cCarry','Số lượng dư mang sang',e.carry_qty||'','number')}${f('cCarryA','Doanh số dư mang sang (chương trình tính theo doanh số)',e.carry_amount||'','number')}
+  ${f('cCNote','Ghi chú phần dư (vd chốt Thượng Hải đến 23/06)',e.carry_note)}${f('cReg','Số khách đăng ký',e.registered)}${f('cRew','Loại thưởng',e.reward)}${f('cPaid','Đã trả thưởng',e.paid)}</div>
+  <label>Ghi chú<br><textarea class="f" id="cNote">${esc(e.note||'')}</textarea></label>
+  <div class="row" style="margin-top:12px"><button class="btn primary" id="cSave">Lưu</button>${e.id?'<button class="btn" id="cDel">Xoá dòng này</button>':''}</div>`;
+  $('#modal').classList.add('open');
+  const ci=$('#cCode');ci.oninput=async()=>{const q=ci.value.trim();if(q.length<2||/^KH\d+$/i.test(q))return;const r=await api('/customers/search?q='+encodeURIComponent(q));$('#cList').innerHTML=r.map(c=>`<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('')};
+  $('#cSave').onclick=async()=>{await api('/campaign/entry',{method:'POST',body:{id:e.id,grp:$('#cGrp').value,stt:$('#cStt').value,customer_code:$('#cCode').value,member:$('#cMem').value,program:$('#cProg').value,owner:$('#cOwner').value,start_at:$('#cStart').value,end_at:$('#cEnd').value,carry_qty:$('#cCarry').value,carry_amount:$('#cCarryA').value,carry_note:$('#cCNote').value,registered:$('#cReg').value,reward:$('#cRew').value,paid:$('#cPaid').value,note:$('#cNote').value}});closeModal();toast('Đã lưu');loadPage()};
+  const dl=$('#cDel');if(dl)dl.onclick=async()=>{if(confirm('Xoá dòng này khỏi chương trình?')){await api('/campaign/entry',{method:'POST',body:{id:e.id,delete:true}});closeModal();loadPage()}}}
 
 async function journey(){
   const j=await api('/report/journey?'+qs());const m=$('#main');const F=j.inv_funnel;const O=j.funnel;
