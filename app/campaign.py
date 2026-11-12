@@ -26,12 +26,19 @@ TICKET_AMOUNT = 269_000_000
 USD_EUNDAN = [(6600, 2000, "IP 18 PRM 512GB"), (2200, 500, ""), (660, 100, "")]
 
 # match: danh sách (các chuỗi phải có trong tên hàng, các chuỗi không được có, hệ số)
+# Các quy tắc dưới đây lấy từ đối chiếu từng hoá đơn với sheet của kế toán:
+#   * hàng MÓP, hộp quà, mút/bông tắm không tính;
+#   * Retinal Krlab tính vào Nạ Krlab (×3) và Enzym tính chung bảng với Eundan, nhưng chỉ với khách
+#     có đăng ký và có ngày bắt đầu riêng — nên là hai dòng con "RET" và "ENZ".
+NOT_COUNTED = ["móp", "hộp quà", "mút tắm", "bông tắm"]
 PROGRAMS = {
     "NA": {"name": "Nạ Krlab", "unit": "qty", "unit_label": "set", "mode": "ticket", "per": 6600,
            "match": [(["krlab", "mặt nạ"], ["retinal"], 1), (["krlab", "mn "], ["retinal"], 1),
-                     (["kr.lab", "mn "], ["retinal"], 1), (["retinal", "krlab"], [], 3)],
+                     (["kr.lab", "mn "], ["retinal"], 1)],
            "gifts": [(6600, "1 vé du lịch Hàn Quốc"), (10000, "IP 18 PRM 512GB"), (12000, "IP 18 PRM 1T")],
            "hint": "1 vé Hàn Quốc = 6.600 set · 1 hộp Retinal tính bằng 3 set"},
+    "RET": {"name": "Retinal Krlab (tính vào Nạ Krlab, ×3)", "row": "NA",
+            "match": [(["retinal", "krlab"], [], 3)]},
     "NGHE": {"name": "Nghệ", "unit": "qty", "unit_label": "hộp", "mode": "usd",
              "match": [(["tinh nghệ"], [], 1), (["thạch nghệ"], [], 1)],
              "tiers": [(2200, 2600, "IP 18 PRM 1T"), (1780, 1900, "IP 18 PRM 512GB"), (1100, 1000, "1 vé Hàn Quốc"),
@@ -39,23 +46,29 @@ PROGRAMS = {
              "hint": "220 hộp = 100$ · 750 = 500$ · 1.100 = 1.000$ · 1.780 = 1.900$ · 2.200 = 2.600$"},
     "EUN": {"name": "Eundan Vitamin C", "unit": "qty", "unit_label": "hộp", "mode": "usd",
             "match": [(["eundan"], [], 1)], "tiers": USD_EUNDAN,
-            "hint": "660 hộp = 100$ · 2.200 = 500$ · 6.600 = 2.000$"},
-    "ENZ": {"name": "Enzym", "unit": "qty", "unit_label": "hộp", "mode": "usd",
-            "match": [(["enzym"], [], 1)], "tiers": USD_EUNDAN,
-            "hint": "660 hộp = 100$ · 2.200 = 500$ · 6.600 = 2.000$"},
+            "hint": "660 hộp = 100$ · 2.200 = 500$ · 6.600 = 2.000$ · Enzym cộng chung nếu khách có chạy Enzym"},
+    "ENZ": {"name": "Enzym (tính chung vào Eundan)", "row": "EUN", "match": [(["enzym"], [], 1)]},
     "DER": {"name": "Dermaxilic", "unit": "amount", "unit_label": "đ", "mode": "ticket", "per": TICKET_AMOUNT,
-            "match": [(["derma"], [], 1)], "hint": "1 vé Hàn Quốc = 269 triệu doanh số"},
+            "match": [(["dermax"], [], 1), (["dermaix"], [], 1)], "hint": "1 vé Hàn Quốc = 269 triệu doanh số"},
     "WB": {"name": "Wonder Bath", "unit": "amount", "unit_label": "đ", "mode": "ticket", "per": TICKET_AMOUNT,
            "match": [(["wonder bath"], [], 1)], "hint": "1 vé Hàn Quốc = 269 triệu doanh số"},
     "LUM": {"name": "Lumos", "unit": "amount", "unit_label": "đ", "mode": "none",
             "match": [(["lumos"], [], 1)], "hint": "Thưởng năm — chưa có bảng quy đổi"},
 }
-ORDER = ["NA", "NGHE", "EUN", "ENZ", "DER", "WB", "LUM"]
+ORDER = ["NA", "NGHE", "EUN", "DER", "WB", "LUM"]
+# Hoá đơn được tính: Hoàn thành và Đang xử lý (báo cáo bán hàng KiotViet mà kế toán dùng gồm cả hai); Đã huỷ thì không.
+COUNTED_STATUS = (1, 3)
+
+
+def row_of(program):
+    return PROGRAMS[program].get("row", program)
 
 
 def factor(program, name):
     """Hệ số quy đổi của một mặt hàng trong chương trình; 0 = không thuộc chương trình."""
     n = (name or "").lower()
+    if any(x in n for x in NOT_COUNTED):
+        return 0
     for inc, exc, k in PROGRAMS[program]["match"]:
         if all(x in n for x in inc) and not any(x in n for x in exc):
             return k
@@ -78,14 +91,17 @@ IMPORT_COLS = ["grp", "stt", "customer_code", "member", "program", "start_at", "
                "carry_note", "registered", "reward", "owner", "note", "paid", "sheet_value", "sheet_last"]
 
 
-def import_entries(entries):
-    """Nạp danh sách khách/chương trình (lấy từ sheet của kế toán). Dòng đã có thì bỏ qua.
+def import_entries(entries, replace=False):
+    """Nạp danh sách khách/chương trình (lấy từ sheet của kế toán). Dòng đã có thì bỏ qua;
+    replace=True thì xoá hết danh sách cũ trước khi nạp.
 
     Dữ liệu khách không nằm trong mã nguồn: kho mã là công khai, nên danh sách này
     chỉ được đưa vào qua trang Thưởng chiến dịch của người quản trị.
     """
     added = skipped = 0
     with db.cursor() as con:
+        if replace:
+            con.execute("DELETE FROM campaign_entries")
         have = {(r["grp"], r["customer_code"], r["program"])
                 for r in con.execute("SELECT grp, customer_code, program FROM campaign_entries").fetchall()}
         for e in entries:
@@ -112,35 +128,31 @@ def _lines(codes):
     if not ids:
         return cust, {}
     qi = ",".join("?" * len(ids))
-    # hoá đơn sửa mang mã gốc + ".01"; ngày của bản gốc mới là ngày bán thật
-    base = {r["code"]: r["purchase_date"] for r in db.rows(
-        f"SELECT code, purchase_date FROM invoices WHERE customer_id IN ({qi})", tuple(ids))}
     out = {}
     for r in db.rows(f"""SELECT i.customer_id cid, i.code, i.purchase_date d, d.product_code pc, d.product_name pn,
             d.quantity q, d.sub_total amt FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id
-            WHERE i.status=1 AND i.customer_id IN ({qi}) AND d.sub_total > 0""", tuple(ids)):
-        m = re.match(r"^(.+)\.(\d{2})$", r["code"] or "")
-        r["edited"] = bool(m)
-        r["eff"] = base.get(m.group(1), r["d"]) if m else r["d"]
-        if m and r["eff"] > r["d"]:
-            r["eff"] = r["d"]
+            WHERE i.status IN ({",".join(map(str, COUNTED_STATUS))}) AND i.customer_id IN ({qi})
+              AND d.sub_total > 0""", tuple(ids)):
+        # hoá đơn sửa (đuôi .01, .02…): bản gốc đã huỷ nên không còn trong danh sách này,
+        # bản sửa được tính một lần theo ngày của chính nó — đúng cách kế toán đang làm
+        r["edited"] = bool(re.match(r"^.+\.\d{2}$", r["code"] or ""))
         r["kind"] = "sale"
         out.setdefault(r["cid"], []).append(r)
     for r in db.rows(f"""SELECT x.customer_id cid, x.code, x.return_date d, rd.product_code pc, rd.product_name pn,
             -rd.quantity q, -rd.sub_total amt FROM return_details rd JOIN returns x ON x.id=rd.return_id
             WHERE x.customer_id IN ({qi}) AND rd.sub_total > 0""", tuple(ids)):
-        r.update(edited=False, eff=r["d"], kind="return")
+        r.update(edited=False, kind="return")
         out.setdefault(r["cid"], []).append(r)
     return cust, out
 
 
-def _entry_lines(e, cust, lines):
+def _entry_lines(e, cust, lines, until=None):
     c = cust.get(e["customer_code"])
     if not c or not e["start_at"]:
         return []
     got = []
     for r in lines.get(c["id"], []):
-        if r["eff"] < e["start_at"] or (e["end_at"] and r["eff"][:10] > e["end_at"][:10]):
+        if r["d"] < e["start_at"] or (e["end_at"] and r["d"][:10] > e["end_at"][:10]) or (until and r["d"] > until):
             continue
         k = factor(e["program"], r["pn"])
         if k:
@@ -148,7 +160,20 @@ def _entry_lines(e, cust, lines):
     return got
 
 
-def compute(user=None):
+def _until(s):
+    """'2026-11-11T08:36' -> '2026-11-11 08:36:59' (tính hết phút đó); chỉ có ngày thì tính hết ngày."""
+    s = (s or "").strip().replace("T", " ")
+    if not s:
+        return None
+    try:
+        if len(s) <= 10:
+            return datetime.fromisoformat(s).strftime("%Y-%m-%d") + " 23:59:59"
+        return datetime.fromisoformat(s).strftime("%Y-%m-%d %H:%M") + ":59"
+    except ValueError:
+        raise HTTPException(400, "Thời điểm tính đến không hợp lệ")
+
+
+def compute(user=None, until=None):
     entries = db.rows("SELECT * FROM campaign_entries ORDER BY stt, grp, id")
     cust, lines = _lines(sorted({e["customer_code"] for e in entries if e["customer_code"]}))
     groups = {}
@@ -161,17 +186,17 @@ def compute(user=None):
         g["customers"][e["customer_code"]] = c["name"] if c else "(không thấy mã này trên KiotViet)"
         if c:
             g.setdefault("sales", set()).add(c["sale"])
-        P = PROGRAMS[e["program"]]
-        row = g["rows"].setdefault(e["program"], {
-            "program": e["program"], "name": P["name"], "unit": P["unit"], "unit_label": P["unit_label"],
+        P = PROGRAMS[row_of(e["program"])]
+        row = g["rows"].setdefault(row_of(e["program"]), {
+            "program": row_of(e["program"]), "name": P["name"], "unit": P["unit"], "unit_label": P["unit_label"],
             "mode": P["mode"], "hint": P["hint"], "entries": [], "qty": 0, "amount": 0, "carry": 0, "value": 0,
             "started": False, "last": None, "sheet_value": None, "sheet_last": None,
             "reward": "", "registered": "", "note": "", "paid": ""})
-        got = _entry_lines(e, cust, lines)
+        got = _entry_lines(e, cust, lines, until)
         qty = sum(r["q"] * r["k"] for r in got)
         amount = sum(r["amt"] for r in got)
         carry = (e["carry_amount"] if P["unit"] == "amount" else e["carry_qty"]) or 0
-        row["entries"].append({**{k: e[k] for k in ("id", "customer_code", "member", "start_at", "end_at", "carry_qty",
+        row["entries"].append({**{k: e[k] for k in ("id", "program", "customer_code", "member", "start_at", "end_at", "carry_qty",
                                                     "carry_amount", "carry_note", "registered", "reward", "note", "paid")},
                                "customer": g["customers"][e["customer_code"]], "qty": qty, "amount": amount,
                                "lines": len(got)})
@@ -199,7 +224,8 @@ def compute(user=None):
             if not row:
                 continue
             P = PROGRAMS[key]
-            row["value"] = (row["amount"] if P["unit"] == "amount" else row["qty"]) + row["carry"]
+            # hàng trả nhiều hơn hàng mua (trả hàng của đợt trước) thì coi là 0, không để âm
+            row["value"] = max(0, (row["amount"] if P["unit"] == "amount" else row["qty"]) + row["carry"])
             v = row["value"]
             if P["mode"] == "ticket":
                 v = max(0, v)
@@ -234,8 +260,10 @@ def compute(user=None):
 
     tickets = sum(int(r["tickets"]) + (1 if r["tickets"] % 1 > 0.5 else 0)       # làm tròn như ô TỔNG SỐ VÉ của sheet
                   for g in out for r in g["rows"] if r["mode"] == "ticket")
-    return {"groups": out, "programs": [{"key": k, "name": PROGRAMS[k]["name"], "hint": PROGRAMS[k]["hint"],
-                                         "unit": PROGRAMS[k]["unit"]} for k in ORDER],
+    return {"groups": out, "until": until,
+            "programs": [{"key": k, "name": PROGRAMS[k]["name"], "hint": PROGRAMS[k]["hint"],
+                          "unit": PROGRAMS[k]["unit"]} for k in ORDER],
+            "entry_programs": [{"key": k, "name": v["name"]} for k, v in PROGRAMS.items()],
             "totals": {"tickets": tickets,
                        "tickets_exact": round(sum(r["tickets"] for g in out for r in g["rows"] if r["mode"] == "ticket"), 2),
                        "usd": sum(r.get("usd", 0) for g in out for r in g["rows"]),
@@ -245,16 +273,18 @@ def compute(user=None):
 
 
 @router.get("/campaign")
-def campaign_get(user=Depends(current_user)):
-    return compute(user)
+def campaign_get(until: str = None, user=Depends(current_user)):
+    return compute(user, _until(until))
 
 
 @router.get("/campaign/detail")
-def campaign_detail(grp: str, program: str, user=Depends(current_user)):
+def campaign_detail(grp: str, program: str, until: str = None, user=Depends(current_user)):
     """Các dòng hàng được tính cho một khách/team trong một chương trình (như tab riêng của khách trên sheet)."""
-    if program not in PROGRAMS:
+    if program not in ORDER:
         raise HTTPException(404)
-    entries = db.rows("SELECT * FROM campaign_entries WHERE grp=? AND program=? ORDER BY id", (grp, program))
+    until = _until(until)
+    entries = [e for e in db.rows("SELECT * FROM campaign_entries WHERE grp=? ORDER BY id", (grp,))
+               if e["program"] in PROGRAMS and row_of(e["program"]) == program]
     cust, lines = _lines(sorted({e["customer_code"] for e in entries if e["customer_code"]}))
     if not is_mgr(user) and not any(allowed(user, c["sale"]) for c in cust.values()):
         raise HTTPException(403)
@@ -264,8 +294,8 @@ def campaign_detail(grp: str, program: str, user=Depends(current_user)):
             rows.append({"d": e["start_at"] or "", "code": "", "kind": "carry", "member": e["member"] or "",
                          "pn": "Dư từ chương trình trước" + (f" ({e['carry_note']})" if e["carry_note"] else ""),
                          "q": e["carry_qty"] or 0, "k": 1, "amt": e["carry_amount"] or 0, "edited": False})
-        for r in _entry_lines(e, cust, lines):
-            rows.append({k: r[k] for k in ("d", "code", "kind", "member", "pn", "q", "k", "amt", "edited", "eff")})
+        for r in _entry_lines(e, cust, lines, until):
+            rows.append({k: r[k] for k in ("d", "code", "kind", "member", "pn", "q", "k", "amt", "edited")})
     rows.sort(key=lambda r: (r["kind"] != "carry", r["d"]))
     return {"grp": grp, "program": program, "name": PROGRAMS[program]["name"], "unit": PROGRAMS[program]["unit"],
             "rows": rows}
@@ -313,11 +343,11 @@ async def campaign_import(request: Request, user=Depends(current_user)):
     entries = b.get("entries") if isinstance(b, dict) else b
     if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
         raise HTTPException(400, "File không đúng định dạng")
-    return import_entries(entries)
+    return import_entries(entries, replace=bool(isinstance(b, dict) and b.get("replace")))
 
 
-def export_sheets(user):
-    d = compute(user)
+def export_sheets(user, until=None):
+    d = compute(user, _until(until))
     rows, det = [], []
     for g in d["groups"]:
         for r in g["rows"]:
