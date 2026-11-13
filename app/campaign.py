@@ -346,6 +346,68 @@ async def campaign_import(request: Request, user=Depends(current_user)):
     return import_entries(entries, replace=bool(isinstance(b, dict) and b.get("replace")))
 
 
+def sheet_tables(user, until=None):
+    """Hai bảng để ghi sang Google Sheet: bảng tổng (như tab BẢNG TỔNG của kế toán) và
+    bảng chi tiết từng dòng hàng được tính (như các tab riêng của từng khách)."""
+    until = _until(until)
+    d = compute(user, until)
+    head = ["STT", "MÃ KH", "KHÁCH HÀNG", "NGƯỜI PHỤ TRÁCH", "CHƯƠNG TRÌNH CHẠY", "THƯỞNG", "SỐ KHÁCH ĐK",
+            "TG BẮT ĐẦU", "DƯ MANG SANG", "SỐ THỰC ĐẠT", "ĐƠN VỊ", "TIẾN ĐỘ", "QUY ĐỔI QUÀ", "CÒN THIẾU",
+            "TỚI MỐC", "ĐƠN GẦN NHẤT", "ĐÃ TRẢ THƯỞNG", "NOTE"]
+    rows = []
+    for g in d["groups"]:
+        for i, r in enumerate(g["rows"]):
+            start = min((e["start_at"] for e in r["entries"] if e["start_at"]), default="")
+            if r["mode"] == "ticket":
+                prog = r["tickets"] if r["started"] else ""
+            elif r["mode"] == "usd":
+                prog = f"{r['usd']}$" if r["started"] else ""
+            else:
+                prog = ""
+            rows.append([g["stt"] if i == 0 else "", ", ".join(c["code"] for c in g["customers"]) if i == 0 else "",
+                         g["grp"] if i == 0 else "", g["owner"] if i == 0 else "", r["name"], r["reward"],
+                         r["registered"], f"{start[8:10]}/{start[5:7]}/{start[:4]}" if start else "",
+                         r["carry"] or "", r["value"] if r["started"] else "",
+                         "đồng" if r["unit"] == "amount" else r["unit_label"],
+                         prog if r["started"] else "Chưa bắt đầu", r.get("gift", ""),
+                         round(r["next_gap"]) if r["started"] and r["next_gap"] is not None else "",
+                         r["next_label"] if r["started"] else "", (r["last"] or "")[:16], r["paid"], r["note"]])
+    dhead = ["STT", "KHÁCH / TEAM", "CHƯƠNG TRÌNH", "KHÁCH", "MÃ KH", "NGÀY", "MÃ HĐ", "LOẠI", "SẢN PHẨM",
+             "SỐ LƯỢNG", "HỆ SỐ", "SỐ LƯỢNG TÍNH", "DOANH SỐ"]
+    entries = [e for e in db.rows("SELECT * FROM campaign_entries ORDER BY stt, grp, id") if e["program"] in PROGRAMS]
+    shown = {g["grp"] for g in d["groups"]}
+    cust, lines = _lines(sorted({e["customer_code"] for e in entries if e["customer_code"]}))
+    det = []
+    for e in entries:
+        if e["grp"] not in shown:
+            continue
+        name = PROGRAMS[row_of(e["program"])]["name"]
+        cname = (cust.get(e["customer_code"]) or {}).get("name", "")
+        if e["carry_qty"] or e["carry_amount"]:
+            det.append([e["stt"], e["grp"], name, cname, e["customer_code"], (e["start_at"] or "")[:16], "",
+                        "Dư kỳ trước", e["carry_note"] or "Dư từ chương trình trước", e["carry_qty"] or 0, 1,
+                        e["carry_qty"] or 0, e["carry_amount"] or 0])
+        for r in sorted(_entry_lines(e, cust, lines, until), key=lambda r: r["d"]):
+            det.append([e["stt"], e["grp"], name, cname, e["customer_code"], r["d"][:16], r["code"],
+                        "Trả hàng" if r["kind"] == "return" else ("Hoá đơn sửa" if r["edited"] else "Bán"),
+                        r["pn"], r["q"], r["k"], r["q"] * r["k"], r["amt"]])
+    return {"until": until, "totals": d["totals"], "as_of": d["as_of"],
+            "summary": [head] + rows, "detail": [dhead] + det}
+
+
+@router.post("/campaign/gsheet")
+async def campaign_gsheet(request: Request, user=Depends(current_user)):
+    """Ghi bảng thưởng chiến dịch sang Google Sheet (cùng file với bảng doanh số)."""
+    if not is_mgr(user):
+        raise HTTPException(403)
+    from . import gsheet
+    b = await request.json()
+    try:
+        return gsheet.export_campaign(sheet_tables(user, b.get("until")), bool(b.get("replace")))
+    except gsheet.ConfigError as e:
+        raise HTTPException(400, str(e))
+
+
 def export_sheets(user, until=None):
     d = compute(user, _until(until))
     rows, det = [], []

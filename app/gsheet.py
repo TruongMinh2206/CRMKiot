@@ -165,3 +165,91 @@ def _export(from_d, to_d, basis, title, replace):
         gid = _sheets(c, sid).get(title)
     log.info("đã xuất %s sang Google Sheet", title)
     return {"title": title, "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit#gid={gid}"}
+
+
+# ---------------------------------------------------------------------------
+# Bảng thưởng chiến dịch
+# ---------------------------------------------------------------------------
+CAMPAIGN_TABS = ("THƯỞNG CHIẾN DỊCH (CRM)", "THƯỞNG CHIẾN DỊCH - CHI TIẾT (CRM)")
+
+
+def export_campaign(tables, replace=False):
+    """Ghi bảng tổng và bảng chi tiết vào hai tab cố định. Tab đã có thì ghi đè nội dung
+    (giữ nguyên tab nên đường link cũ vẫn dùng được) khi replace=True."""
+    try:
+        return _export_campaign(tables, replace)
+    except ConfigError:
+        raise
+    except Exception as e:
+        log.exception("xuất thưởng chiến dịch sang Google Sheet thất bại")
+        raise ConfigError(f"{type(e).__name__}: {e}")
+
+
+def _safe(v):
+    """Ghi theo kiểu RAW nên chuỗi không bao giờ bị hiểu thành công thức; chỉ cần bỏ None."""
+    return "" if v is None else v
+
+
+def _export_campaign(tables, replace):
+    from datetime import datetime
+    info, sid, _ = config()
+    tok = _token(info)
+    t_sum, t_det = CAMPAIGN_TABS
+    with _client(tok) as c:
+        tabs = _sheets(c, sid)
+        have = [t for t in CAMPAIGN_TABS if t in tabs]
+        if have and not replace:
+            raise ConfigError(f"Tab \"{have[0]}\" đã có. Tick \"ghi đè\" để thay nội dung cũ.")
+        new = [t for t in CAMPAIGN_TABS if t not in tabs]
+        if new:
+            _batch(c, sid, [{"addSheet": {"properties": {"title": t, "index": i}}} for i, t in enumerate(new)])
+            tabs = _sheets(c, sid)
+        for t in have:                              # xoá nội dung cũ, giữ tab
+            r = c.post(f"{API}/{sid}/values/{quote(t)}:clear", json={})
+            if r.status_code >= 400:
+                raise ConfigError(f"Không xoá được nội dung tab cũ: {r.text[:200]}")
+
+        stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+        scope = (f"chỉ tính hoá đơn đến {tables['until'][8:10]}/{tables['until'][5:7]}/{tables['until'][:4]} "
+                 f"{tables['until'][11:16]}" if tables.get("until") else "tính đến lần đồng bộ KiotViet gần nhất")
+        tt = tables["totals"]
+        title = [[f"BẢNG THƯỞNG CHIẾN DỊCH — xuất từ CRM lúc {stamp} (giờ máy chủ) · {scope}"],
+                 [f"Tổng vé Hàn Quốc: {tt['tickets']} (cộng lẻ {tt['tickets_exact']}) · Tổng thưởng đô: {tt['usd']}$ · "
+                  f"{tt['groups']} khách/team · {tt['not_started']} dòng chưa bắt đầu"], []]
+        data = [{"range": f"'{t_sum}'!A1", "values": title + [[_safe(v) for v in row] for row in tables["summary"]]},
+                {"range": f"'{t_det}'!A1", "values": [[f"CHI TIẾT CÁC DÒNG HÀNG ĐƯỢC TÍNH — xuất từ CRM lúc {stamp} · {scope}"], []]
+                 + [[_safe(v) for v in row] for row in tables["detail"]]}]
+        r = c.post(f"{API}/{sid}/values:batchUpdate", json={"valueInputOption": "RAW", "data": data})
+        if r.status_code >= 400:
+            raise ConfigError(f"Google từ chối khi ghi số liệu: {r.text[:300]}")
+
+        def fmt(tab, head_row, ncols, money_cols):
+            gid = tabs[tab]
+            bold = {"userEnteredFormat": {"textFormat": {"bold": True}}}
+            reqs = [
+                {"updateSheetProperties": {"properties": {"sheetId": gid, "gridProperties": {"frozenRowCount": head_row}},
+                                           "fields": "gridProperties.frozenRowCount"}},
+                {"repeatCell": {"range": {"sheetId": gid, "startRowIndex": 0, "endRowIndex": 1},
+                                "cell": {"userEnteredFormat": {"textFormat": {"bold": True, "fontSize": 12}}},
+                                "fields": "userEnteredFormat.textFormat"}},
+                {"repeatCell": {"range": {"sheetId": gid, "startRowIndex": head_row - 1, "endRowIndex": head_row,
+                                          "startColumnIndex": 0, "endColumnIndex": ncols},
+                                "cell": {"userEnteredFormat": {"textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                                                               "backgroundColor": {"red": 0.12, "green": 0.44, "blue": 0.26},
+                                                               "horizontalAlignment": "CENTER", "wrapStrategy": "WRAP"}},
+                                "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,wrapStrategy)"}},
+                {"autoResizeDimensions": {"dimensions": {"sheetId": gid, "dimension": "COLUMNS",
+                                                         "startIndex": 0, "endIndex": ncols}}}]
+            for col in money_cols:
+                reqs.append({"repeatCell": {"range": {"sheetId": gid, "startRowIndex": head_row,
+                                                      "startColumnIndex": col, "endColumnIndex": col + 1},
+                                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0.##"}}},
+                                            "fields": "userEnteredFormat.numberFormat"}})
+            return reqs
+
+        _batch(c, sid, fmt(t_sum, 4, len(tables["summary"][0]), [8, 9, 13])
+               + fmt(t_det, 3, len(tables["detail"][0]), [9, 11, 12]))
+        gid = tabs[t_sum]
+    log.info("đã xuất thưởng chiến dịch sang Google Sheet")
+    return {"title": t_sum, "detail": t_det, "rows": len(tables["summary"]) - 1, "lines": len(tables["detail"]) - 1,
+            "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit#gid={gid}"}
