@@ -221,7 +221,23 @@ def build_plan(c, sid, until=None):
     grids = read_tabs(c, sid, [t for t in need_tabs if t in tabs])
     blocks_of = {t: parse_blocks(g) for t, g in grids.items()}
 
-    todo, skipped = {}, []
+    # các bản trước của hoá đơn sửa (mã gốc, .01, .02…): nếu bản trước đã nằm trong khối thì không đổ bản sửa nữa
+    versions = {}
+    for r in db.rows("SELECT code, purchase_date FROM invoices WHERE code IS NOT NULL"):
+        versions.setdefault(r["code"].split(".")[0], []).append((r["code"], r["purchase_date"]))
+
+    def already_poured(x, b):
+        if not x.get("edited"):
+            return None
+        for code, d in versions.get(x["code"].split(".")[0], []):
+            if code == x["code"] or not d or d >= x["d"]:
+                continue
+            t = serial(d)
+            if any(row["dt"] is not None and abs(row["dt"] - t) < 90 / 86400 for row in b["rows"]):
+                return code
+        return None
+
+    todo, skipped, edits = {}, [], []
     for e in entries:
         tab = tab_of.get(e["stt"]) or by_no.get(e["stt"])
         who = f"{e['grp']}{' / ' + e['member'] if e['member'] else ''} · {campaign.PROGRAMS[e['program']]['name']}"
@@ -245,6 +261,14 @@ def build_plan(c, sid, until=None):
             last = from_serial(max(dated)) + timedelta(seconds=0.5)
             cut = last.replace(second=59, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
             got = [x for x in got if x["d"] > cut]
+        keep = []
+        for x in got:
+            prev = already_poured(x, b)
+            if prev:
+                edits.append({"who": who, "tab": tab, "code": x["code"], "prev": prev, "d": x["d"], "pn": x["pn"], "q": x["q"]})
+            else:
+                keep.append(x)
+        got = keep
         if not got:
             continue
         key = (tab, b["c"], b["r"])
@@ -270,7 +294,7 @@ def build_plan(c, sid, until=None):
                      "lines": [{"d": x["d"], "code": x["code"], "pn": x["pn"], "q": x["q"],
                                 "price": round(x["amt"] / x["q"]) if x["q"] else 0, "kind": x["kind"]} for x in new]})
     plan.sort(key=lambda p: (p["tab"], p["c"], -p["r"]))
-    return {"tabs": tabs, "tong": tong, "plan": plan, "skipped": skipped, "by_no": by_no, "tab_of": tab_of}
+    return {"tabs": tabs, "tong": tong, "plan": plan, "skipped": skipped, "edits": edits, "by_no": by_no, "tab_of": tab_of}
 
 
 def _cell(v):
@@ -366,7 +390,8 @@ def run(until=None, write=False):
             result = {"sheet_id": sid, "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit", "written": False,
                       "until": until, "blocks": [{"tab": p["tab"], "who": p["who"], "add": len(p["lines"]),
                                                   "insert": p["insert"], "lines": p["lines"]} for p in plan],
-                      "total_lines": sum(len(p["lines"]) for p in plan), "usd": usd, "skipped": st["skipped"]}
+                      "total_lines": sum(len(p["lines"]) for p in plan), "usd": usd, "skipped": st["skipped"],
+                      "edits": st["edits"]}
             if not write or (not plan and not usd):
                 return result
             reqs = [q for p in plan for q in requests_for(p)]
