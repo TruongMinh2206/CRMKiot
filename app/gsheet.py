@@ -191,7 +191,7 @@ def _safe(v):
 
 
 def _export_campaign(tables, replace):
-    from datetime import datetime
+    from datetime import datetime, timedelta, timezone
     info, sid, _ = config()
     tok = _token(info)
     t_sum, t_det = CAMPAIGN_TABS
@@ -209,11 +209,11 @@ def _export_campaign(tables, replace):
             if r.status_code >= 400:
                 raise ConfigError(f"Không xoá được nội dung tab cũ: {r.text[:200]}")
 
-        stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+        stamp = datetime.now(timezone(timedelta(hours=7))).strftime("%d/%m/%Y %H:%M")   # giờ Việt Nam
         scope = (f"chỉ tính hoá đơn đến {tables['until'][8:10]}/{tables['until'][5:7]}/{tables['until'][:4]} "
                  f"{tables['until'][11:16]}" if tables.get("until") else "tính đến lần đồng bộ KiotViet gần nhất")
         tt = tables["totals"]
-        title = [[f"BẢNG THƯỞNG CHIẾN DỊCH — xuất từ CRM lúc {stamp} (giờ máy chủ) · {scope}"],
+        title = [[f"BẢNG THƯỞNG CHIẾN DỊCH — xuất từ CRM lúc {stamp} · {scope}"],
                  [f"Tổng vé Hàn Quốc: {tt['tickets']} (cộng lẻ {tt['tickets_exact']}) · Tổng thưởng đô: {tt['usd']}$ · "
                   f"{tt['groups']} khách/team · {tt['not_started']} dòng chưa bắt đầu"], []]
         data = [{"range": f"'{t_sum}'!A1", "values": title + [[_safe(v) for v in row] for row in tables["summary"]]},
@@ -239,7 +239,11 @@ def _export_campaign(tables, replace):
                                                                "horizontalAlignment": "CENTER", "wrapStrategy": "WRAP"}},
                                 "fields": "userEnteredFormat(textFormat,backgroundColor,horizontalAlignment,wrapStrategy)"}},
                 {"autoResizeDimensions": {"dimensions": {"sheetId": gid, "dimension": "COLUMNS",
-                                                         "startIndex": 0, "endIndex": ncols}}}]
+                                                         "startIndex": 0, "endIndex": ncols}}},
+                # cột A chứa dòng tiêu đề dài nên tự giãn rất rộng; đặt lại cho vừa cột STT
+                {"updateDimensionProperties": {"range": {"sheetId": gid, "dimension": "COLUMNS",
+                                                         "startIndex": 0, "endIndex": 1},
+                                               "properties": {"pixelSize": 55}, "fields": "pixelSize"}}]
             for col in money_cols:
                 reqs.append({"repeatCell": {"range": {"sheetId": gid, "startRowIndex": head_row,
                                                       "startColumnIndex": col, "endColumnIndex": col + 1},
