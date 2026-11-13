@@ -131,6 +131,10 @@ def parse_blocks(g):
                 break
             if nms.upper().startswith("SẢN PHẨM"):
                 break
+            # tab của team: dòng tổng không ghi "Tổng" mà ghi tên thành viên ở cột ngày
+            if dts and not nms and isnum(q) and rows:
+                end, member = y, dts
+                break
             if nm is None and dt is None and not isnum(q):
                 empty += 1
                 if empty > 60:
@@ -183,6 +187,12 @@ def pick_block(blocks, program, member, grp):
             if bm and (bm in gname or gname in bm) and (not m or m in gname or gname in m):
                 return b, None
         return None, "có nhiều khối cùng chương trình, không xác định được khối của thành viên này"
+    # chưa có dòng nào của chương trình này: khối trống mang đúng tên thành viên (tab của team)
+    m = _norm(member)
+    empty = [b for b in blocks if b["prog"] is None and b["end"] and not b["rows"]
+             and m and _norm(b["member"]) and (_norm(b["member"]) == m or _norm(b["member"]) in m or m in _norm(b["member"]))]
+    if len(empty) == 1:
+        return empty[0], None
     return None, "tab chưa có khối cho chương trình này"
 
 
@@ -226,6 +236,8 @@ def build_plan(c, sid, until=None):
             skipped.append({"who": who, "why": why, "lines": len(got)})
             continue
         dated = [x["dt"] for x in b["rows"] if x["dt"] is not None]
+        if not b["rows"] and all(x["kind"] == "return" for x in got):
+            continue                                   # khối chưa có đơn nào thì không đổ riêng dòng trả hàng của đợt trước
         if b["rows"] and not dated:
             skipped.append({"who": who, "why": "khối có dòng nhưng không có ngày, không biết đã đổ đến đâu", "lines": len(got)})
             continue
