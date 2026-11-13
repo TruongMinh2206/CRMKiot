@@ -247,7 +247,7 @@ def _export_campaign(tables, replace):
             for col in money_cols:
                 reqs.append({"repeatCell": {"range": {"sheetId": gid, "startRowIndex": head_row,
                                                       "startColumnIndex": col, "endColumnIndex": col + 1},
-                                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0.##"}}},
+                                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "#,##0"}}},
                                             "fields": "userEnteredFormat.numberFormat"}})
             return reqs
 
