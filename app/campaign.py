@@ -408,6 +408,34 @@ async def campaign_gsheet(request: Request, user=Depends(current_user)):
         raise HTTPException(400, str(e))
 
 
+@router.get("/campaign/sheet")
+def campaign_sheet_status(user=Depends(current_user)):
+    from . import campaign_sheet, gsheet
+    sid = campaign_sheet.sheet_id()
+    return {"sheet_id": sid, "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit" if sid else "",
+            "account": gsheet.status().get("client_email", "")}
+
+
+@router.post("/campaign/sheet")
+async def campaign_sheet_run(request: Request, user=Depends(current_user)):
+    """Đổ hoá đơn mới vào file thưởng chiến dịch theo bố cục của kế toán.
+    action: config (đặt file, chỉ quản trị) | preview (xem trước, không ghi) | write (ghi)."""
+    if not is_mgr(user):
+        raise HTTPException(403)
+    from . import campaign_sheet, gsheet
+    b = await request.json()
+    action = b.get("action") or "preview"
+    if action == "config":
+        if user.get("role") != "admin":
+            raise HTTPException(403)
+        db.set_meta("campaign_gsheet_id", str(b.get("sheet") or "").strip())
+        return campaign_sheet_status(user)
+    try:
+        return campaign_sheet.run(b.get("until"), write=(action == "write"))
+    except gsheet.ConfigError as e:
+        raise HTTPException(400, str(e))
+
+
 def export_sheets(user, until=None):
     d = compute(user, _until(until))
     rows, det = [], []

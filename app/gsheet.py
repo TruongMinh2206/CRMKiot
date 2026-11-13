@@ -41,6 +41,20 @@ def config():
     return info, sid.strip(), tpl.strip()
 
 
+def config_account():
+    """Khoá tài khoản dịch vụ (không cần ID file) — dùng cho các file Google Sheet khác của CRM."""
+    sa = db.get_meta("gsheet_sa")
+    if not sa:
+        raise ConfigError("Chưa khai báo service account trong Cài đặt.")
+    try:
+        info = json.loads(sa)
+    except ValueError:
+        raise ConfigError("Nội dung service account không phải JSON hợp lệ.")
+    if not info.get("client_email") or not info.get("private_key"):
+        raise ConfigError("File service account thiếu client_email hoặc private_key.")
+    return info
+
+
 def status():
     """Tóm tắt thiết lập để hiển thị ở Cài đặt (không trả về khoá bí mật)."""
     sa = db.get_meta("gsheet_sa")
