@@ -713,3 +713,42 @@ def debt_aging(sale=None):
             "risk_customers": sum(1 for c in custs if c["risk"]),
             "buckets": {k: sum(c[k] for c in custs) for k in keys},
             "prepaid": {"n": pre["n"], "v": -pre["v"]}, "as_of": db.get_meta("last_sync")}
+
+
+# ---------------------------------------------------------------------------
+# Doanh số từng khách sếp theo ngày (bảng doanh số)
+# ---------------------------------------------------------------------------
+def boss_daily(from_d, to_d):
+    """Doanh số từng khách sếp theo từng ngày trong kỳ, đã trừ hàng trả — cùng cách tính
+    với cột "DS khách sếp" của bảng doanh số. Khách đánh dấu "K áp KPI" vẫn hiện nhưng
+    không cộng vào tổng (giống bảng doanh số)."""
+    from .sheet_template import B2_CODES
+    f, t, _, _ = _period(from_d, to_d)
+    d0, d1 = date.fromisoformat(from_d[:10]), date.fromisoformat(to_d[:10])
+    days = [(d0 + timedelta(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+    custs = db.rows(f"""SELECT c.id, c.code, c.name, {sale_expr()} sale, COALESCE(c.boss_no_kpi,0) no_kpi
+        FROM customers c WHERE COALESCE(c.is_boss,0)=1""")
+    order = {code: i for i, code in enumerate(B2_CODES)}
+    custs.sort(key=lambda c: (order.get(c["code"], 999), c["name"] or ""))
+    sold, ret, inv = {}, {}, {}
+    for r in db.rows(f"""SELECT i.customer_id cid, substr(i.purchase_date,1,10) d, SUM({REV}) v, COUNT(*) n
+        FROM invoices i JOIN customers c ON c.id=i.customer_id
+        WHERE {INV_OK} AND COALESCE(c.is_boss,0)=1 AND i.purchase_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
+        sold.setdefault(r["cid"], {})[r["d"]] = r["v"] or 0
+        inv[r["cid"]] = inv.get(r["cid"], 0) + r["n"]
+    for r in db.rows("""SELECT r.customer_id cid, substr(r.return_date,1,10) d, SUM(r.total) v
+        FROM returns r JOIN customers c ON c.id=r.customer_id
+        WHERE COALESCE(c.is_boss,0)=1 AND r.return_date BETWEEN ? AND ? GROUP BY 1,2""", (f, t)):
+        ret.setdefault(r["cid"], {})[r["d"]] = r["v"] or 0
+    rows = []
+    for c in custs:
+        s, rt = sold.get(c["id"], {}), ret.get(c["id"], {})
+        daily = [(s.get(d, 0) or 0) - (rt.get(d, 0) or 0) for d in days]
+        rows.append({"code": c["code"], "name": c["name"], "sale": c["sale"], "no_kpi": bool(c["no_kpi"]),
+                     "id": c["id"], "daily": daily, "gross": sum(s.values()), "returns": sum(rt.values()),
+                     "total": sum(daily), "invoices": inv.get(c["id"], 0)})
+    counted = [r for r in rows if not r["no_kpi"]]
+    return {"days": days, "rows": rows,
+            "day_total": [sum(r["daily"][i] for r in counted) for i in range(len(days))],
+            "total": sum(r["total"] for r in counted), "gross": sum(r["gross"] for r in counted),
+            "returns": sum(r["returns"] for r in counted)}

@@ -346,10 +346,16 @@ def board(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias
     basis = basis or db.get_meta("report_basis") or "customer"
     b = reports.sales_board(f, t, basis, weekly=bool(weekly))
     b["cancelled_list"] = reports.cancelled_invoices(f, t)
+    b["boss_daily"] = reports.boss_daily(f, t)
     if not is_mgr(user):
         b["rows"] = [r for r in b["rows"] if allowed(user, r["sale"])]
         b["teams"] = [g for g in b["teams"] if any(r["team"] == g["team"] for r in b["rows"])]
         b["cancelled_list"] = [r for r in b["cancelled_list"] if allowed(user, r["sale"])]
+        bd = b["boss_daily"]
+        bd["rows"] = [r for r in bd["rows"] if allowed(user, r["sale"])]
+        cnt = [r for r in bd["rows"] if not r["no_kpi"]]
+        bd["day_total"] = [sum(r["daily"][i] for r in cnt) for i in range(len(bd["days"]))]
+        bd["total"] = sum(r["total"] for r in cnt)
     return b
 
 
