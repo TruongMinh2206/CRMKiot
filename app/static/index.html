@@ -254,7 +254,7 @@ async function trend(){
 
 const TREND_KIND={new:'KH mới (tạo trong tháng)',first:'Mua lần đầu',active:'KH có mua',returning:'KH quay lại',lost:'KH ngừng mua'};
 async function trendList(ym,kind){
-  const mb=$('#modalBody');mb.innerHTML='<div class="empty">Đang tải…</div>';$('#modal').classList.add('open');
+  const mb=$('#modalBody');mb.style.width='min(1280px,100%)';mb.innerHTML='<div class="empty">Đang tải…</div>';$('#modal').classList.add('open');
   const q='ym='+ym+'&kind='+kind+'&sale='+encodeURIComponent(state.sale||'');
   const rows=await api('/report/trend/list?'+q);const mo=ym.slice(5)+'/'+ym.slice(0,4);
   const note={new:'khách được tạo trên KiotViet trong tháng',first:'khách có hoá đơn đầu tiên trong tháng',active:'khách có hoá đơn hoàn thành trong tháng',returning:'khách có mua trong tháng và đã từng mua trước đó',lost:`lần mua cuối + ${state.churn||90} ngày rơi vào tháng này, đến nay chưa mua lại`}[kind];
@@ -750,7 +750,7 @@ async function openCustomer(id){
   const a=$('#asg');if(a)a.onchange=async()=>{await api(`/customers/${id}/sale`,{method:'POST',body:{sale:a.value}});toast('Đã gán sale');state.sales=await api('/sales')};
   chart('cm',{type:'bar',data:{labels:d.monthly.map(x=>x.ym.slice(5)+'/'+x.ym.slice(2,4)),datasets:[{data:d.monthly.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+d.monthly[c.dataIndex].n+' HĐ'}}}})});
 }
-function closeModal(){$('#modal').classList.remove('open')}
+function closeModal(){$('#modal').classList.remove('open');$('#modalBody').style.width=''}
 $('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};
 
 // Sort table by clicking header (simple, client side)
