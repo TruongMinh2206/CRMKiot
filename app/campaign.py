@@ -395,6 +395,33 @@ def sheet_tables(user, until=None):
             "summary": [head] + rows, "detail": [dhead] + det}
 
 
+@router.get("/campaign/export")
+def campaign_export_status(user=Depends(current_user)):
+    from . import campaign_export, gsheet
+    sid = campaign_export.sheet_id()
+    return {"sheet_id": sid, "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit" if sid else "",
+            "account": gsheet.status().get("client_email", "")}
+
+
+@router.post("/campaign/export")
+async def campaign_export_run(request: Request, user=Depends(current_user)):
+    """Xuất thưởng chiến dịch ra file Google Sheet riêng theo bố cục của kế toán.
+    action: config (đặt file, chỉ quản trị) | run (dựng lại file)."""
+    if not is_mgr(user):
+        raise HTTPException(403)
+    from . import campaign_export, gsheet
+    b = await request.json()
+    if b.get("action") == "config":
+        if user.get("role") != "admin":
+            raise HTTPException(403)
+        db.set_meta("campaign_export_id", str(b.get("sheet") or "").strip())
+        return campaign_export_status(user)
+    try:
+        return campaign_export.run(b.get("until"), bool(b.get("replace")))
+    except gsheet.ConfigError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/campaign/gsheet")
 async def campaign_gsheet(request: Request, user=Depends(current_user)):
     """Ghi bảng thưởng chiến dịch sang Google Sheet (cùng file với bảng doanh số)."""
