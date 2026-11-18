@@ -311,8 +311,9 @@ def build_tong(groups, titles, gids, results, stamp, scope, sep):
             "TG BẮT ĐẦU", "TG KẾT THÚC", "TIẾN ĐỘ", "ĐÃ TRẢ THƯỞNG", "TRẢ THƯỞNG CHIẾN DỊCH - CUỐI NĂM", "LINK", "NOTE"]
     for i, h in enumerate(head, 1):
         G.put(1, i, C(h, bold=True, size=10, h="CENTER", wrap=True, fill="#FFFF00" if i == 11 else None))
-    G.widths.update({1: 35, 2: 120, 3: 160, 4: 120, 5: 175, 6: 160, 7: 100, 8: 95, 9: 95, 10: 80, 11: 120,
-                     12: 160, 13: 160, 14: 200, 15: 30, 16: 130, 17: 110})
+    G.widths.update({1: 35, 2: 120, 3: 160, 4: 140, 5: 185, 6: 160, 7: 100, 8: 95, 9: 95, 10: 80, 11: 120,
+                     12: 160, 13: 160, 14: 200, 15: 130, 16: 110})
+    G.groups = []                                   # (dòng đầu, dòng cuối) của từng khách để kẻ viền đậm
     r = 2
     for g in groups:
         title = titles[g["grp"]]
@@ -348,17 +349,61 @@ def build_tong(groups, titles, gids, results, stamp, scope, sep):
             G.put(rr, 13, C(title.split(". ", 1)[-1] if rr == r0 else None, size=10, color="#0000FF", underline=True,
                             link=f"#gid={gids[title]}"))
         G.merge(r0, 13, r1, 13)
+        G.groups.append((r0, r1))
     # tổng số vé / số đô như ô bên phải bảng của kế toán
     last = max(r - 1, 2)
-    G.put(2, 16, C("TỔNG SỐ VÉ", bold=True, size=10, fill=ORANGE))
-    G.put(2, 17, C(f"=SUMPRODUCT(IFERROR(INT(J2:J{last})+(MOD(J2:J{last}{sep}1)*2>1){sep}0))",
+    G.put(2, 15, C("TỔNG SỐ VÉ", bold=True, size=10, fill=ORANGE))
+    G.put(2, 16, C(f"=SUMPRODUCT(IFERROR(INT(J2:J{last})+(MOD(J2:J{last}{sep}1)*2>1){sep}0))",
                    bold=True, size=10, fill=ORANGE, num="int", h="RIGHT"))
-    G.put(3, 16, C("TỔNG SỐ ĐÔ", bold=True, size=10, fill=ORANGE))
-    G.put(3, 17, C(f'=SUMPRODUCT(IFERROR(VALUE(SUBSTITUTE(J2:J{last}{sep}"$"{sep}""))*REGEXMATCH(TO_TEXT(J2:J{last}){sep}"\\$"){sep}0))',
+    G.put(3, 15, C("TỔNG SỐ ĐÔ", bold=True, size=10, fill=ORANGE))
+    G.put(3, 16, C(f'=SUMPRODUCT(IFERROR(VALUE(SUBSTITUTE(J2:J{last}{sep}"$"{sep}""))*REGEXMATCH(TO_TEXT(J2:J{last}){sep}"\\$"){sep}0))',
                    bold=True, size=10, fill=ORANGE, num="int", h="RIGHT"))
-    G.put(5, 16, C(f"Xuất từ CRM lúc {stamp}", size=10, border=False))
-    G.put(6, 16, C(scope, size=10, border=False))
+    G.put(5, 15, C(f"Xuất từ CRM lúc {stamp}", size=10, border=False))
+    G.put(6, 15, C(scope, size=10, border=False))
     return G
+
+
+THICK = {"style": "SOLID_THICK", "color": {"red": 0, "green": 0, "blue": 0}}
+THIN = {"style": "SOLID", "color": {"red": 0, "green": 0, "blue": 0}}
+
+
+def style_tong(c, sid, G):
+    """Cho BẢNG TỔNG giống bản của kế toán: viền đậm giữa các khách, nút lọc ở dòng tiêu đề, và các ô
+    chọn (người phụ trách, chương trình, thưởng) dạng nhãn màu.
+
+    Nhãn màu của ô chọn không đặt được bằng API, nên chép tab BẢNG TỔNG từ file mẫu của kế toán
+    (file "Đổ vào file kế toán" — bản sao, không phải file gốc) sang làm tab tạm, dán quy tắc chọn
+    của cột D:F xuống toàn bộ bảng rồi xoá tab tạm."""
+    last = max((r1 for _, r1 in G.groups), default=1)
+    rng = lambda r1, r2, c1, c2: {"sheetId": TONG_ID, "startRowIndex": r1 - 1, "endRowIndex": r2,
+                                  "startColumnIndex": c1 - 1, "endColumnIndex": c2}
+    reqs = [{"updateBorders": {"range": rng(1, 1, 1, 14), "top": THIN, "bottom": THICK, "left": THIN, "right": THIN,
+                               "innerVertical": THIN}}]
+    for r0, r1 in G.groups:
+        reqs.append({"updateBorders": {"range": rng(r0, r1, 1, 14), "top": THICK, "bottom": THICK, "left": THICK,
+                                       "right": THICK, "innerHorizontal": THIN, "innerVertical": THIN}})
+    reqs.append({"setBasicFilter": {"filter": {"range": rng(1, last, 1, 14)}}})
+    _batch(c, sid, reqs, "kẻ viền bảng tổng")
+    tpl = campaign_sheet.sheet_id()
+    if not tpl or tpl == sid or last < 2:
+        return
+    try:
+        m = _get(c, f"{API}/{tpl}", [("fields", "sheets.properties(sheetId,title)")])
+        src = next((s["properties"]["sheetId"] for s in m.get("sheets", [])
+                    if s["properties"]["title"].strip().upper() == TONG), None)
+        if src is None:
+            return
+        r = c.post(f"{API}/{tpl}/sheets/{src}:copyTo", json={"destinationSpreadsheetId": sid})
+        if r.status_code >= 400:
+            log.warning("không chép được bảng tổng mẫu: %s", r.text[:200])
+            return
+        tmp = r.json()["sheetId"]
+        src_rng = {"sheetId": tmp, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 3, "endColumnIndex": 6}
+        _batch(c, sid, [{"copyPaste": {"source": src_rng, "destination": rng(2, last, 4, 6),
+                                       "pasteType": "PASTE_DATA_VALIDATION"}},
+                        {"deleteSheet": {"sheetId": tmp}}], "tô màu ô chọn")
+    except ConfigError as e:
+        log.warning("bỏ qua nhãn màu bảng tổng: %s", e)
 
 
 def _get(c, url, params=None):
@@ -450,6 +495,7 @@ def run(until=None, replace=False):
                                        "frozenRowCount": 1, "frozenColumnCount": 6 if t == TONG else 0}}}})
             _batch(c, sid, adds + [{"deleteSheet": {"sheetId": tmp}}], "tạo tab")
             _batch(c, sid, [q for t in order for q in grids[t].requests(gids[t])], "ghi dữ liệu")
+            style_tong(c, sid, grids[TONG])
             if meta.get("properties", {}).get("title", "").startswith(("Bảng tính không có tiêu đề", "Untitled")):
                 _batch(c, sid, [{"updateSpreadsheetProperties": {"properties": {"title": "THƯỞNG CHIẾN DỊCH - XUẤT TỪ CRM"},
                                                                   "fields": "title"}}], "đặt tên file")
