@@ -158,9 +158,18 @@ def build_customer(title, g, entries, cust, lines, until, sep):
                     "ĐƠN GIÁ BÁN", "TỔNG DOANH SỐ"]
             for i, h in enumerate(head):
                 G.put(1, c0 + i, C(h, bold=True, fill=fill, h="CENTER", wrap=True))
-            G.widths.update({c0: 125, c0 + 1: 330, c0 + 2: 80, c0 + 3: 90, c0 + 4: 125, c0 + 5: 30, c0 + 6: 30})
+            G.widths.update({c0: 125, c0 + 1: 330, c0 + 2: 105, c0 + 3: 100, c0 + 4: 145, c0 + 5: 30, c0 + 6: 30})
             r = 2
+            got = sorted(campaign._entry_lines(e, cust, lines, until), key=lambda x: (x["d"], x["code"] or ""))
             cq, ca = e["carry_qty"] or 0, e["carry_amount"] or 0
+            if cq and not ca and not amount and got:          # phần dư tính theo đơn giá hay gặp nhất của khối, như kế toán
+                prices = {}
+                for x in got:
+                    if x["q"] > 0:
+                        pr = round(x["amt"] / x["q"])
+                        prices[pr] = prices.get(pr, 0) + 1
+                if prices:
+                    ca = max(prices, key=prices.get) * cq
             if cq or ca or e["carry_note"]:
                 note = e["carry_note"] or ""
                 txt = "Khách dư từ chương trình trước" + (f" ({note})" if note else "")
@@ -177,7 +186,7 @@ def build_customer(title, g, entries, cust, lines, until, sep):
                     G.put(r, c0 + 4, C(f"={col(c0 + 2)}{r}*{col(c0 + 3)}{r}" if price else (ca or 0),
                                        bold=True, num="int", h="RIGHT"))
                 r += 1
-            for x in sorted(campaign._entry_lines(e, cust, lines, until), key=lambda x: (x["d"], x["code"] or "")):
+            for x in got:
                 price = x["amt"] / x["q"] if x["q"] else 0
                 G.put(r, c0, C(serial(x["d"]), num="date", h="RIGHT"))
                 name = x["pn"] + (" (trả hàng)" if x["kind"] == "return" else "")
@@ -316,7 +325,7 @@ def build_tong(groups, titles, gids, results, stamp, scope, sep):
                 label += ", ENZYM"
             start = min((e["start_at"] for e in row.get("entries", []) if e.get("start_at")), default="")
             cell = results.get(g["grp"], {}).get(prog)
-            prog_v = f"={_ref(title, *cell)}" if cell else ""
+            prog_v = f"={_ref(title, *cell)}" if cell and row.get("started") else ""
             G.put(r, 5, C(label, size=10))
             G.put(r, 6, C((row.get("reward") or "").upper(), size=10))
             G.put(r, 7, C(row.get("registered") or "", size=10, h="RIGHT"))
@@ -342,7 +351,7 @@ def build_tong(groups, titles, gids, results, stamp, scope, sep):
     # tổng số vé / số đô như ô bên phải bảng của kế toán
     last = max(r - 1, 2)
     G.put(2, 16, C("TỔNG SỐ VÉ", bold=True, size=10, fill=ORANGE))
-    G.put(2, 17, C(f"=SUMPRODUCT(IFERROR(INT(J2:J{last})+(MOD(J2:J{last}{sep}1)>0.5){sep}0))",
+    G.put(2, 17, C(f"=SUMPRODUCT(IFERROR(INT(J2:J{last})+(MOD(J2:J{last}{sep}1)*2>1){sep}0))",
                    bold=True, size=10, fill=ORANGE, num="int", h="RIGHT"))
     G.put(3, 16, C("TỔNG SỐ ĐÔ", bold=True, size=10, fill=ORANGE))
     G.put(3, 17, C(f'=SUMPRODUCT(IFERROR(VALUE(SUBSTITUTE(J2:J{last}{sep}"$"{sep}""))*REGEXMATCH(TO_TEXT(J2:J{last}){sep}"\\$"){sep}0))',
