@@ -124,6 +124,36 @@ def customer_trend(months=12, sale=None):
     return rows
 
 
+TREND_KINDS = {"new": "KH mới (tạo trong tháng)", "first": "Mua lần đầu", "active": "KH có mua",
+               "returning": "KH quay lại", "lost": "KH ngừng mua"}
+
+
+def trend_list(ym, kind, sale=None):
+    """Danh sách khách đứng sau một con số của trang Biến động KH (cùng cách đếm với customer_trend)."""
+    if kind not in TREND_KINDS:
+        raise ValueError(kind)
+    sf, sp = _sale_filter(sale)
+    cond = {"new": "substr(c.created_date,1,7) = ?",
+            "first": "substr(allb.first_d,1,7) = ?",
+            "active": "m.cid IS NOT NULL",
+            "returning": "m.cid IS NOT NULL AND substr(allb.first_d,1,7) < ?",
+            "lost": f"allb.last_d < ? AND substr(date(allb.last_d, '+{config.CHURN_DAYS} days'),1,7) = ?"}[kind]
+    cutoff = (date.today() - timedelta(days=config.CHURN_DAYS)).isoformat()
+    cp = {"active": (), "lost": (cutoff, ym)}.get(kind, (ym,))
+    order = "allb.rev DESC" if kind == "lost" else "COALESCE(m.rev,0) DESC, c.created_date DESC"
+    return db.rows(f"""
+    WITH buys AS (SELECT i.customer_id cid, substr(i.purchase_date,1,7) ym, SUM({REV}) rev, COUNT(*) n
+                  FROM invoices i WHERE {INV_OK} GROUP BY 1,2),
+    allb AS (SELECT i.customer_id cid, MIN(i.purchase_date) first_d, MAX(i.purchase_date) last_d, SUM({REV}) rev, COUNT(*) n
+             FROM invoices i WHERE {INV_OK} GROUP BY 1)
+    SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} AS sale, c.created_date, c.debt,
+      COALESCE(m.rev,0) revenue, COALESCE(m.n,0) invoices, allb.first_d first_purchase, allb.last_d last_purchase,
+      COALESCE(allb.rev,0) lifetime_revenue, COALESCE(allb.n,0) lifetime_invoices,
+      CAST(julianday(?) - julianday(allb.last_d) AS INTEGER) AS days_since_last
+    FROM customers c LEFT JOIN buys m ON m.cid=c.id AND m.ym=? LEFT JOIN allb ON allb.cid=c.id
+    WHERE {cond} {sf} ORDER BY {order}""", (date.today().isoformat(), ym) + cp + sp)
+
+
 # ---------------------------------------------------------------------------
 # 3. Doanh số khách hàng (top, giảm, RFM)
 # ---------------------------------------------------------------------------

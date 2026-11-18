@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -223,6 +224,13 @@ def r_trend(months: int = 12, sale: str = None, user=Depends(current_user)):
     return reports.customer_trend(months, sale_scope(user, sale))
 
 
+@app.get("/api/report/trend/list")
+def r_trend_list(ym: str, kind: str, sale: str = None, user=Depends(current_user)):
+    if kind not in reports.TREND_KINDS or not re.fullmatch(r"\d{4}-\d{2}", ym or ""):
+        raise HTTPException(400, "Tham số không hợp lệ")
+    return reports.trend_list(ym, kind, sale_scope(user, sale))
+
+
 @app.get("/api/report/customers")
 def r_customers(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), sale: str = None, user=Depends(current_user)):
     f, t = _dates(from_d, to_d)
@@ -348,7 +356,7 @@ M, P = excel.MONEY, excel.PCT
 
 @app.get("/api/export/{report}")
 def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), sale: str = None,
-           months: int = 12, days: int = 30, user=Depends(current_user)):
+           months: int = 12, days: int = 30, ym: str = None, kind: str = None, user=Depends(current_user)):
     f, t = _dates(from_d, to_d)
     s = sale_scope(user, sale)
     sheets = []
@@ -363,6 +371,14 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("Bien dong KH", [("ym", "Tháng"), ("new_customers", "KH mới"), ("first_buyers", "Mua lần đầu"), ("active_customers", "KH có mua"),
                         ("returning_customers", "KH quay lại"), ("lost_customers", "KH ngừng mua"), ("net_change", "Tăng/giảm ròng"),
                         ("cumulative_customers", "Tổng KH đầu kỳ"), ("returned", "Hàng trả", M), ("revenue", "Doanh số", M)], reports.customer_trend(months, s)))
+    elif report == "trend_list":
+        if kind not in reports.TREND_KINDS or not re.fullmatch(r"\d{4}-\d{2}", ym or ""):
+            raise HTTPException(400, "Tham số không hợp lệ")
+        sheets.append((f"{kind} {ym}", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"),
+                        ("created_date", "Ngày tạo"), ("revenue", f"Doanh số tháng {ym[5:]}/{ym[:4]}", M), ("invoices", "Số HĐ trong tháng"),
+                        ("first_purchase", "Mua lần đầu"), ("last_purchase", "Mua gần nhất"), ("days_since_last", "Số ngày chưa mua"),
+                        ("lifetime_revenue", "DS tích luỹ", M), ("lifetime_invoices", "HĐ tích luỹ"), ("debt", "Công nợ", M)],
+                       reports.trend_list(ym, kind, s)))
     elif report == "customers":
         sheets.append(("Doanh so KH", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"), ("segment", "Phân nhóm"),
                         ("returned", "Hàng trả", M), ("revenue", "Doanh số", M), ("invoices", "Số HĐ"), ("revenue_prev", "DS kỳ trước", M), ("growth", "Tăng/giảm %", P),
