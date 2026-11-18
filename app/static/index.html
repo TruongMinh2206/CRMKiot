@@ -103,6 +103,23 @@ input.f,select.f,textarea.f{padding:7px 10px;border:1px solid var(--border);bord
 .prog{height:10px;border-radius:5px;background:var(--surface-2);overflow:hidden;min-width:80px}.prog i{display:block;height:100%;background:var(--s3)}
 .prog i.low{background:var(--s8)}.prog i.mid{background:var(--s4)}
 textarea{width:100%;min-height:60px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-2)}
+.evsteps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+@media (max-width:900px){.evsteps{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.evstep{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 10px;text-align:left;display:flex;flex-direction:column;gap:2px;cursor:pointer;min-width:0}
+.evstep b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.evstep.cur{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset}.evstep.view{background:var(--brand-2)}.evstep .bar{margin-top:4px;height:5px}
+.evboard{display:grid;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:start}
+.evcol{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;max-height:72vh;min-height:140px}
+.evcol.over{border-color:var(--brand);background:var(--brand-2)}
+.evcolh{display:flex;align-items:center;gap:6px;padding:9px 10px 6px;font-weight:600;font-size:13px}.evcolh i{width:8px;height:8px;border-radius:50%}.evcolh span{margin-left:auto;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:0 8px;font-size:12px}
+.evcolb{padding:0 8px 8px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.evcard{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:9px 10px;display:flex;flex-direction:column;gap:6px;cursor:grab;font-size:13px}
+.evcard:hover{box-shadow:var(--shadow)}.evcard.dragging{opacity:.45}
+.evgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media (max-width:520px){.evgrid{grid-template-columns:1fr}}
+label.lb{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-2);margin-bottom:10px}label.lb .f{width:100%}
+.evtpl{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px}.evtpl pre{white-space:pre-wrap;font-family:inherit;background:var(--surface-2);border-radius:8px;padding:10px;margin:6px 0 0;font-size:13px}
+.tag.d-BGD{background:#ece4f7;color:#5b3a8c}.tag.d-SALE{background:#fde7ef;color:#b0225a}.tag.d-MKT{background:#e1ecfa;color:#245fa8}.tag.d-KT{background:var(--good-2);color:var(--good)}.tag.d-KHO{background:var(--warn-2);color:var(--warn)}.tag.d-HCNS{background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tag.d-BGD{background:#2c2240;color:#c9b3f0}:root:not([data-theme="light"]) .tag.d-SALE{background:#3d1b29;color:#f0679b}:root:not([data-theme="light"]) .tag.d-MKT{background:#172a42;color:#86b6f3}}
+:root[data-theme="dark"] .tag.d-BGD{background:#2c2240;color:#c9b3f0}:root[data-theme="dark"] .tag.d-SALE{background:#3d1b29;color:#f0679b}:root[data-theme="dark"] .tag.d-MKT{background:#172a42;color:#86b6f3}
 </style>
 </head>
 <body>
@@ -147,7 +164,7 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 // ============================================================================
 const isMgr=()=>['admin','accountant'].includes(state.user.role);
 const ROLE={admin:'Quản trị',accountant:'Kế toán',lead:'Trưởng nhóm',sale:'Sale'};
-const PAGES=[['overview','Tổng quan','◫'],['board','Bảng doanh số','▦'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['campaign','Thưởng chiến dịch','🎁'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['debts','Công nợ','💳'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
+const PAGES=[['overview','Tổng quan','◫'],['board','Bảng doanh số','▦'],['tasks','Công việc','☑'],['kpi','KPI sale','🎯'],['campaign','Thưởng chiến dịch','🎁'],['events','Sự kiện','🎪'],['leads','Khách tiềm năng','🧲'],['sales','Khách theo sale','👥'],['trend','Biến động KH','📈'],['customers','Doanh số KH','💰'],['debts','Công nợ','💳'],['products','Hàng nhanh / chậm','📦'],['journey','Hành trình đơn','🚚'],['birthdays','Sinh nhật KH','🎂'],['settings','Cài đặt','⚙']];
 function render(){
   const root=$('#root');
   if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
@@ -193,7 +210,7 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // Pages
 // ============================================================================
 async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -265,6 +282,187 @@ async function trendList(ym,kind){
     $('#tlb').innerHTML=f.slice(0,1500).map(r=>`<tr><td class="muted">${esc(r.code)}</td><td class="name"><a href="#" onclick="closeModal();openCustomer(${r.id});return false"><b>${esc(r.name)}</b></a></td><td>${esc(r.contact_number||'')}</td><td>${esc(r.sale)}</td><td>${dmy(r.created_date)}</td><td class="r"><b>${fmt(r.revenue)}</b></td><td class="r">${r.invoices||''}</td><td>${dmy(r.first_purchase)}</td><td>${dmy(r.last_purchase)}</td><td class="r">${r.days_since_last??'–'}</td><td class="r">${fmt(r.lifetime_revenue)}</td><td class="r">${fmt(r.debt)}</td></tr>`).join('')||'<tr><td colspan="12" class="empty">Không có khách nào</td></tr>'};
   $('#tlQ').oninput=draw;draw();sortable('#tl',draw);
 }
+
+// ============================================================================
+// Sự kiện: quy trình liên phòng ban + chăm khách sau sự kiện (kéo thả theo bước)
+// ============================================================================
+const EV_PH=[['Lên kế hoạch','D-30 → D-21','Chốt mục tiêu, ngân sách, phân vai'],['Chuẩn bị','D-20 → D-1','Ấn phẩm, hàng, mời khách, đào tạo'],['Tại sự kiện','Ngày D','Ghi data 100% khách, chụp ảnh'],['Sau sự kiện 72h','D+1 → D+3','Làm sạch data, gửi ảnh, làm quen'],['Chăm sóc & lan toả','D+4 → D+30','Chốt đơn, gom bài hashtag, tặng quà'],['Tổng kết','D+30','Đo kết quả, khen thưởng, rút kinh nghiệm']];
+const EV_ST=[['todo','Cần làm','var(--muted)'],['doing','Đang làm','var(--s1)'],['done','Xong','var(--good)']];
+const EV_CS=[['s0','Data mới','vừa nhập từ sự kiện','var(--muted)'],['s1','Đã làm quen','kết bạn Zalo / gọi điện','var(--s1)'],['s2','Đã gửi ảnh + mời đăng','gửi ảnh, kèm hashtag','var(--s7)'],['s3','Đã đăng bài #','dán link bài đăng','var(--s5)'],['s4','Đã mua đơn','đơn đầu / đơn lại','var(--good)'],['s5','Hoàn tất','đã tặng quà cảm ơn','var(--s3)'],['sx','Dừng','không phản hồi / từ chối','var(--bad)']];
+const EV_TPL=[
+ {id:'lq',n:'Làm quen khách mới (Zalo)',w:'Trong 48 giờ sau sự kiện',t:'Dạ em chào chị {ten}, em là {sale} bên Dermaxilic – LB Global ạ. Hôm trước chị ghé booth {su_kien} của bên em, em cảm ơn chị nhiều lắm. Em kết bạn để tiện gửi chị ảnh chụp ở booth và thông tin sản phẩm chị quan tâm nha. Chị cần tư vấn gì cứ nhắn em ạ!'},
+ {id:'anh',n:'Gửi ảnh + mời đăng bài',w:'Ngay khi có ảnh',t:'Chị {ten} ơi, em gửi chị ảnh chụp ở booth {su_kien} nè ạ. Chị đăng giúp em 1 bài lên Facebook (để công khai) kèm hashtag {hashtag} rồi gửi em link bài nha. Bên em có phần quà cảm ơn gửi tặng chị ạ!'},
+ {id:'cu',n:'Khách cũ: cảm ơn đã ghé + mời đăng bài',w:'D+1 → D+3',t:'Em cảm ơn chị {ten} đã dành thời gian ghé booth {su_kien} ủng hộ bên em ạ. Em gửi chị ảnh mình chụp chung nha. Chị đăng giúp em bài check-in kèm hashtag {hashtag}, gửi em link để em gửi quà tri ân chị ạ.'},
+ {id:'nhac',n:'Nhắc khách chưa đăng bài',w:'Sau 3 ngày chưa thấy bài',t:'Chị {ten} ơi, chị đăng bài ảnh ở booth {su_kien} chưa ạ? Chị nhớ thêm hashtag {hashtag} và để chế độ công khai giúp em nha, xong gửi em link để em gửi quà cho chị liền ạ.'},
+ {id:'cam-on',n:'Cảm ơn sau khi khách đăng bài',w:'Ngay khi nhận link',t:'Em cảm ơn chị {ten} nhiều ạ, bài của chị đẹp quá! Em ghi nhận rồi, quà cảm ơn sẽ gửi tới chị trong tuần này ạ.'},
+ {id:'uu-dai',n:'Gửi ưu đãi chốt đơn đầu',w:'D+4 → D+14',t:'Chị {ten} ơi, khách quen biết bên em qua sự kiện {su_kien} được ưu đãi riêng khi đặt đơn đầu tiên trong tháng này ạ. Chị đang quan tâm dòng nào để em báo giá và tư vấn kỹ cho chị nha.'}];
+const evAdd=(s,n)=>{const [y,m,d]=s.split('-').map(Number);return iso(new Date(y,m-1,d+n))};
+const evOff=o=>o===0?'Ngày D':(o<0?`D${o}`:`D+${o}`);
+const evPhone=p=>String(p||'').replace(/\D/g,'').replace(/^84(?=\d{9,})/,'0');
+const evFill=(t,c)=>{const e=(state.ev||{}).event||{};return t.replace(/\{ten\}/g,c&&c.name||'chị').replace(/\{sale\}/g,c&&c.sale||state.user.display_name||'[tên sale]').replace(/\{su_kien\}/g,e.name||'sự kiện').replace(/\{hashtag\}/g,e.hashtag||'#[hashtag]')};
+const evDue=t=>{const e=state.ev.event;return e.date?evAdd(e.date,t.off):null};
+const evCanEdit=()=>isMgr()||state.user.role==='lead';
+async function evLoad(id){state.ev=await api('/events/'+id);state.evId=id;try{localStorage.setItem('crm-ev',id)}catch{}}
+async function events(){
+  const list=await api('/events');const m=$('#main');state.evList=list;
+  if(!list.length){m.innerHTML=topbar('Sự kiện',{dates:false,sale:false})+`<div class="card empty"><h3 style="justify-content:center">Chưa có sự kiện nào</h3><p>Tạo sự kiện (ví dụ RCD 2026): đặt ngày, hashtag. Các phòng ban theo dõi việc từng bước và chăm khách sau sự kiện tại đây.</p>${evCanEdit()?'<button class="btn primary" onclick="evForm()">＋ Tạo sự kiện</button>':'<p class="small">Nhờ quản lý tạo sự kiện.</p>'}</div>`;return}
+  let want=state.evId;try{want=want||+localStorage.getItem('crm-ev')}catch{}
+  if(!list.some(e=>e.id===want))want=list[0].id;
+  await evLoad(want);evDraw();
+}
+function evDraw(){
+  const m=$('#main');const d=state.ev,e=d.event;state.evTab=state.evTab||'tien-do';
+  const tasks=d.tasks,done=tasks.filter(t=>t.status==='done').length,today=iso(new Date());
+  const late=e.date?tasks.filter(t=>t.status!=='done'&&evDue(t)<today).length:0;
+  const C=d.customers,moi=C.filter(c=>c.kind==='moi').length,posts=C.filter(c=>c.post).length,bought=C.filter(c=>c.rev_after>0).length;
+  m.innerHTML=topbar('Sự kiện',{dates:false,sale:false,extra:`<select id="evPick">${state.evList.map(x=>`<option value="${x.id}" ${x.id===e.id?'selected':''}>${esc(x.name)}${x.date?' · '+dmy(x.date):''}</option>`).join('')}</select>${evCanEdit()?'<button class="btn" onclick="evForm(true)">Sửa sự kiện</button><button class="btn primary" onclick="evForm()">＋ Sự kiện mới</button>':''}`})+
+  `<div class="row small" style="gap:6px 18px;margin:-8px 0 12px"><span>📅 <b>${e.date?dmy(e.date):'Chưa đặt ngày'}</b>${e.place?' · '+esc(e.place):''}</span><span>Hashtag: <b>${esc(e.hashtag||'chưa chốt')}</b></span><span>Đang ở bước: <b style="color:var(--brand)">${EV_PH[e.phase||0][0]}</b></span><span>Việc xong: <b>${done}/${tasks.length}</b>${late?` · <b style="color:var(--bad)">${late} việc trễ hạn</b>`:''}</span><span>Khách: <b>${C.length}</b> (mới ${moi}) · bài hashtag <b>${posts}</b> · đã mua sau sự kiện <b>${bought}</b></span></div>
+  <div class="chips" style="margin-bottom:14px">${[['tien-do','Tiến độ sự kiện'],['khach','Khách sau sự kiện'],['phan-cong','Ai làm gì'],['mau-tin','Mẫu tin nhắn']].map(([k,l])=>`<span class="chip ${state.evTab===k?'on':''}" onclick="state.evTab='${k}';evDraw()">${l}</span>`).join('')}</div><div id="evView"></div>`;
+  $('#evPick').onchange=async ev=>{state.evPhase=null;await evLoad(+ev.target.value);evDraw()};
+  ({'tien-do':evTasks,'khach':evCust,'phan-cong':evRaci,'mau-tin':evTpls})[state.evTab]();
+}
+async function evReload(){await evLoad(state.evId);evDraw()}
+// ----- tiến độ -----
+function evTasks(){
+  const e=state.ev.event,tasks=state.ev.tasks,cur=e.phase||0,pv=state.evPhase??cur,dk=state.evDept||'';
+  const list=tasks.filter(t=>t.phase===pv&&(!dk||t.dept===dk)),all=tasks.filter(t=>t.phase===pv),allDone=all.length&&all.every(t=>t.status==='done');
+  $('#evView').innerHTML=`<div class="evsteps">${EV_PH.map(([n,w,h],i)=>{const ts=tasks.filter(t=>t.phase===i),dn=ts.filter(t=>t.status==='done').length;
+    return `<button class="evstep ${i===cur?'cur':''} ${i===pv?'view':''}" title="${esc(h)}" onclick="state.evPhase=${i};evTasks()"><span class="small muted">BƯỚC ${i+1}${i===cur?' · ĐANG LÀM':''}</span><b>${n}</b><span class="small muted">${w}</span><span class="bar"><i style="width:${ts.length?Math.round(dn/ts.length*100):0}%;background:var(--good)"></i></span><span class="small muted">${dn}/${ts.length} việc xong</span></button>`}).join('')}</div>
+  <div class="row" style="margin:12px 0 10px"><b>${EV_PH[pv][0]}</b><span class="muted small" style="flex:1">${EV_PH[pv][2]}</span>
+   <select class="f" id="evDept"><option value="">Tất cả phòng ban</option>${Object.entries(state.ev.depts).map(([k,v])=>`<option value="${k}" ${dk===k?'selected':''}>${v}</option>`).join('')}</select>
+   <button class="btn" onclick="evTaskForm(null,${pv})">＋ Thêm việc</button>
+   ${pv===cur&&cur<5?`<button class="btn ${allDone?'primary':''}" onclick="evAdvance()">Chuyển sang: ${EV_PH[cur+1][0]} →</button>`:''}${pv!==cur?`<button class="btn" onclick="evPhase(${pv})">Đặt làm bước hiện tại</button>`:''}</div>
+  <div class="evboard" style="grid-template-columns:repeat(3,minmax(240px,1fr))">${EV_ST.map(([k,l,c])=>{const it=list.filter(t=>(t.status||'todo')===k);
+    return `<section class="evcol" data-drop="task" data-key="${k}"><div class="evcolh"><i style="background:${c}"></i>${l}<span>${it.length}</span></div><div class="evcolb">${it.map(evTaskCard).join('')||'<div class="empty small">Kéo việc vào đây</div>'}</div></section>`}).join('')}</div>`;
+  $('#evDept').onchange=x=>{state.evDept=x.target.value;evTasks()};evDnD('task');
+}
+function evTaskCard(t){
+  const due=evDue(t),done=t.status==='done',today=iso(new Date());let cls='';if(due&&!done){if(due<today)cls='bad';else if(due<=evAdd(today,2))cls='warn'}
+  const nx={todo:['doing','Bắt đầu'],doing:['done','Xong ✓'],done:['todo','Mở lại']}[t.status||'todo'];
+  return `<article class="evcard" draggable="true" data-id="${t.id}"><div class="row" style="gap:6px"><span class="tag d-${t.dept}">${state.ev.depts[t.dept]}</span><span class="small ${cls?'tag '+cls:'muted'}">${due?'Hạn '+dmy(due).slice(0,5):evOff(t.off)}</span></div>
+  <div style="${done?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.text)}</div><div class="small muted">${t.owner?'👤 '+esc(t.owner):'Chưa giao người'}${t.note?' · 📝':''}</div>
+  <div class="row" style="justify-content:flex-end;gap:4px"><button class="btn small" onclick="evTaskForm(${t.id})">Chi tiết</button><button class="btn small" onclick="evTaskSet(${t.id},'${nx[0]}')">${nx[1]}</button></div></article>`;
+}
+async function evTaskSet(id,status){await api(`/events/${state.evId}/task`,{method:'POST',body:{id,status}});evReload()}
+async function evPhase(p){await api('/events',{method:'POST',body:{id:state.evId,phase:p}});state.evPhase=p;toast('Sự kiện chuyển sang bước: '+EV_PH[p][0]);evReload()}
+function evAdvance(){const e=state.ev.event,cur=e.phase||0,open=state.ev.tasks.filter(t=>t.phase===cur&&t.status!=='done');if(!open.length)return evPhase(cur+1);
+  evModal(`<h2 style="margin:0 0 8px">Chuyển sang “${EV_PH[cur+1][0]}”?</h2><p>Bước <b>${EV_PH[cur][0]}</b> còn <b>${open.length}</b> việc chưa xong:</p><ul>${open.map(t=>`<li><span class="tag d-${t.dept}">${state.ev.depts[t.dept]}</span> ${esc(t.text)}${t.owner?' — '+esc(t.owner):''}</li>`).join('')}</ul><div class="row"><button class="btn" onclick="closeModal()">Ở lại làm tiếp</button><button class="btn primary" onclick="closeModal();evPhase(${cur+1})">Vẫn chuyển bước</button></div>`)}
+function evTaskForm(id,phase){
+  const t=id?state.ev.tasks.find(x=>x.id===id):{phase,dept:'SALE',text:'',off:0,custom:1,status:'todo'};const D=state.ev.depts;
+  evModal(`<div class="row"><h2 style="flex:1;margin:0">${id?'Chi tiết việc':'Thêm việc'}</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  ${t.custom?`<label class="lb">Việc cần làm<textarea class="f" id="ftText">${esc(t.text)}</textarea></label><div class="evgrid">
+   <label class="lb">Phòng ban<select class="f" id="ftDept">${Object.entries(D).map(([k,v])=>`<option value="${k}" ${t.dept===k?'selected':''}>${v}</option>`).join('')}</select></label>
+   <label class="lb">Bước<select class="f" id="ftPhase">${EV_PH.map((p,i)=>`<option value="${i}" ${t.phase===i?'selected':''}>${i+1}. ${p[0]}</option>`).join('')}</select></label>
+   <label class="lb">Hạn (số ngày so với ngày D)<input class="f" id="ftOff" type="number" value="${t.off}"></label></div>`
+  :`<p><span class="tag d-${t.dept}">${D[t.dept]}</span> <span class="small muted">Bước ${t.phase+1}: ${EV_PH[t.phase][0]} · ${evOff(t.off)}${evDue(t)?' → hạn '+dmy(evDue(t)):''}</span></p><p><b>${esc(t.text)}</b></p>`}
+  <div class="evgrid"><label class="lb">Người phụ trách<input class="f" id="ftOwner" value="${esc(t.owner||'')}" placeholder="Tên người làm"></label>
+  <label class="lb">Trạng thái<select class="f" id="ftStatus">${EV_ST.map(([k,l])=>`<option value="${k}" ${(t.status||'todo')===k?'selected':''}>${l}</option>`).join('')}</select></label></div>
+  <label class="lb">Ghi chú / link tài liệu<textarea class="f" id="ftNote">${esc(t.note||'')}</textarea></label>
+  ${t.updated_by?`<p class="small muted">Cập nhật lần cuối: ${esc(t.updated_by)} · ${dmy(t.updated)} ${String(t.updated).slice(11,16)}</p>`:''}
+  <div class="row"><button class="btn primary" onclick="evTaskSave(${id||0})">Lưu</button>${t.custom&&id?`<button class="btn" onclick="evTaskDel(${id})">Xoá việc này</button>`:''}</div>`)}
+async function evTaskSave(id){const b={id:id||undefined,owner:$('#ftOwner').value,status:$('#ftStatus').value,note:$('#ftNote').value};
+  if($('#ftText')){b.text=$('#ftText').value;b.dept=$('#ftDept').value;b.phase=+$('#ftPhase').value;b.off=+$('#ftOff').value||0}
+  await api(`/events/${state.evId}/task`,{method:'POST',body:b});closeModal();toast('Đã lưu');evReload()}
+async function evTaskDel(id){await api(`/events/${state.evId}/task`,{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá việc');evReload()}
+// ----- khách -----
+function evCust(){
+  const q=(state.evQ||'').toLowerCase(),sf=state.evSale||'',kf=state.evKind||'';
+  const L=state.ev.customers.filter(c=>(!sf||c.sale===sf)&&(!kf||c.kind===kf)&&(!q||(c.name||'').toLowerCase().includes(q)||evPhone(c.phone).includes(evPhone(q)||'###')||(c.kv_code||'').toLowerCase().includes(q)));
+  const sales=[...new Set(state.ev.customers.map(c=>c.sale).filter(Boolean))].sort();
+  const moi=L.filter(c=>c.kind==='moi'),touched=moi.filter(c=>c.step!=='s0'&&c.step!=='sx').length;
+  const stale=L.filter(c=>c.step==='s0'&&c.created&&(Date.now()-new Date(c.created))>2*864e5).length,rev=L.reduce((a,c)=>a+(c.rev_after||0),0);
+  $('#evView').innerHTML=`<div class="grid g4" style="margin-bottom:12px">
+   <div class="card tile"><h3>Khách</h3><div class="v">${fmt(L.length)}</div><div class="d">${moi.length} mới · ${L.length-moi.length} cũ</div></div>
+   <div class="card tile"><h3>Khách mới đã làm quen</h3><div class="v">${moi.length?Math.round(touched/moi.length*100):0}%</div><div class="d">${stale?`<b style="color:var(--bad)">${stale} data quá 48h chưa ai liên hệ</b>`:'không có data bị bỏ quên'}</div></div>
+   <div class="card tile"><h3>Bài đăng có hashtag</h3><div class="v">${L.filter(c=>c.post).length}</div><div class="d">đã dán link vào thẻ khách</div></div>
+   <div class="card tile"><h3>Mua sau sự kiện (KiotViet)</h3><div class="v">${fmtK(rev)}</div><div class="d">${L.filter(c=>c.rev_after>0).length} khách có hoá đơn từ ngày D</div></div></div>
+  <div class="row" style="margin-bottom:10px"><input class="f" id="evQ" placeholder="Tìm tên / SĐT / mã KH" value="${esc(state.evQ||'')}" style="width:220px">
+   <select class="f" id="evSale"><option value="">Tất cả sale</option>${sales.map(s=>`<option ${sf===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
+   <select class="f" id="evKind"><option value="">Khách mới + cũ</option><option value="moi" ${kf==='moi'?'selected':''}>Khách mới</option><option value="cu" ${kf==='cu'?'selected':''}>Khách cũ</option></select>
+   <span style="flex:1"></span><button class="btn" onclick="evImport()">Dán danh sách khách</button><button class="btn primary" onclick="evCustForm()">＋ Thêm khách</button></div>
+  <div class="evboard" style="grid-template-columns:repeat(7,minmax(220px,1fr))">${EV_CS.map(([k,l,h,c])=>{const it=L.filter(x=>(x.step||'s0')===k);
+    return `<section class="evcol" data-drop="cust" data-key="${k}"><div class="evcolh"><i style="background:${c}"></i>${l}<span>${it.length}</span></div><div class="small muted" style="padding:0 6px 6px">${h}</div><div class="evcolb">${it.slice(0,300).map(evCustCard).join('')||'<div class="empty small">Kéo thẻ khách vào đây</div>'}${it.length>300?`<div class="empty small">… và ${it.length-300} khách nữa, dùng ô tìm để lọc</div>`:''}</div></section>`}).join('')}</div>`;
+  let tm;$('#evQ').oninput=x=>{clearTimeout(tm);tm=setTimeout(()=>{state.evQ=x.target.value;evCust();const i=$('#evQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)};
+  $('#evSale').onchange=x=>{state.evSale=x.target.value;evCust()};$('#evKind').onchange=x=>{state.evKind=x.target.value;evCust()};evDnD('cust');
+}
+function evCustCard(c){
+  const i=EV_CS.findIndex(s=>s[0]===(c.step||'s0')),nx=EV_CS[i+1]&&EV_CS[i+1][0]!=='sx'?EV_CS[i+1]:null;
+  const age=c.updated?Math.floor((Date.now()-new Date(c.updated))/864e5):null;
+  return `<article class="evcard" draggable="true" data-id="${c.id}"><b style="overflow-wrap:anywhere">${esc(c.name||'(chưa có tên)')}</b>
+  <div class="row small" style="gap:6px"><span class="tag ${c.kind==='cu'?'info':'good'}">${c.kind==='cu'?'Khách cũ':'Khách mới'}</span><span class="muted">${esc(c.phone||'')}</span>${c.kv_code?`<span class="muted" title="${esc(c.kv_name)}">${esc(c.kv_code)}</span>`:''}</div>
+  <div class="row small muted" style="gap:4px 8px"><span>👤 ${esc(c.sale||'chưa gán sale')}</span>${c.photo?'<span>🖼 ảnh</span>':''}${c.post?'<span style="color:var(--s5)"># đã đăng</span>':''}${c.rev_after>0?`<span style="color:var(--good)">💰 ${fmtK(c.rev_after)}</span>`:''}${age!==null&&age>=3&&!['s5','sx'].includes(c.step)?`<span class="tag ${age>=7?'bad':'warn'}">${age} ngày chưa cập nhật</span>`:''}</div>
+  <div class="row" style="justify-content:flex-end;gap:4px"><button class="btn small" onclick="evCustForm(${c.id})">Mở</button>${nx?`<button class="btn small" onclick="evMove(${c.id},'${nx[0]}')">→ ${nx[1]}</button>`:''}</div></article>`;
+}
+async function evMove(id,step){const c=state.ev.customers.find(x=>x.id===id);if(!c||c.step===step)return;
+  if(step==='s3'&&!c.post){evCustForm(id,step);toast('Dán link bài đăng của khách rồi bấm Lưu');return}
+  await api(`/events/${state.evId}/customer`,{method:'POST',body:{id,step}});evReload()}
+function evSaleOpts(v){return [...new Set((state.sales||[]).concat(v?[v]:[]))].map(s=>`<option value="${esc(s)}" ${s===v?'selected':''}>${esc(s)}</option>`).join('')}
+function evCustForm(id,toStep){
+  const c=id?state.ev.customers.find(x=>x.id===id):{kind:'',step:'s0',sale:isMgr()?'':(state.user.sale_name||'')};if(!c)return;const step=toStep||c.step||'s0';
+  const msgs=(c.kind==='cu'?['cu','nhac','cam-on','uu-dai']:['lq','anh','nhac','cam-on','uu-dai']).map(k=>EV_TPL.find(t=>t.id===k));
+  evModal(`<div class="row"><h2 style="flex:1;margin:0">${id?esc(c.name||'Khách'):'Thêm khách'}</h2>${c.customer_id?`<button class="btn" onclick="closeModal();openCustomer(${c.customer_id})">Xem trên KiotViet ↗</button>`:''}<button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  ${c.kv_code?`<p class="small muted">Khớp khách KiotViet <b>${esc(c.kv_code)}</b> ${esc(c.kv_name||'')}${c.rev_after>0?` · mua sau sự kiện <b style="color:var(--good)">${fmt(c.rev_after)} đ</b> (${c.inv_after} HĐ, gần nhất ${dmy(c.last_buy)})`:' · chưa mua từ ngày sự kiện'}</p>`:(id?'<p class="small muted">Chưa khớp được khách KiotViet theo SĐT này.</p>':'')}
+  <div class="evgrid"><label class="lb">Tên khách<input class="f" id="fcName" value="${esc(c.name||'')}"></label><label class="lb">Số điện thoại<input class="f" id="fcPhone" inputmode="tel" value="${esc(c.phone||'')}"></label>
+  <label class="lb">Loại khách<select class="f" id="fcKind"><option value="" ${!c.kind?'selected':''}>Tự xác định theo KiotViet</option><option value="moi" ${c.kind==='moi'?'selected':''}>Khách mới</option><option value="cu" ${c.kind==='cu'?'selected':''}>Khách cũ</option></select></label>
+  <label class="lb">Sale phụ trách<select class="f" id="fcSale"><option value="">— chưa gán —</option>${evSaleOpts(c.sale)}</select></label></div>
+  <label class="lb">Bước<select class="f" id="fcStep">${EV_CS.map(([k,l])=>`<option value="${k}" ${step===k?'selected':''}>${l}</option>`).join('')}</select></label>
+  <label class="lb">Link ảnh của khách (Drive / Zalo)<input class="f" id="fcPhoto" value="${esc(c.photo||'')}" placeholder="https://"></label>
+  <label class="lb">Link bài đăng có hashtag<input class="f" id="fcPost" value="${esc(c.post||'')}" placeholder="https://facebook.com/…"></label>
+  <label class="lb">Ghi chú (nhu cầu, phản hồi, lịch hẹn)<textarea class="f" id="fcNote">${esc(c.note||'')}</textarea></label>
+  <div class="row"><button class="btn primary" onclick="evCustSave(${id||0})">Lưu</button>${id?`<button class="btn" onclick="$('#evDel').hidden=false">Xoá khách</button>`:''}</div>
+  <div id="evDel" class="row" hidden style="background:var(--bad-2);color:var(--bad);padding:8px 10px;border-radius:8px;margin-top:8px">Xoá khách này khỏi sự kiện? Không khôi phục được. <button class="btn small" onclick="$('#evDel').hidden=true">Không</button><button class="btn small primary" onclick="evCustDel(${id||0})">Xoá</button></div>
+  ${(c.history||[]).length?`<p class="small muted">Lịch sử: ${c.history.map(h=>`${(EV_CS.find(s=>s[0]===h.step)||[,'?'])[1]} (${dmy(h.at)}${h.by?' · '+esc(h.by):''})`).join(' → ')}</p>`:''}
+  <h3 style="margin-top:14px">Tin nhắn soạn sẵn cho khách này</h3>
+  ${msgs.map(t=>`<div class="evtpl"><div class="row"><b style="flex:1">${t.n}</b><button class="btn small" onclick="evCopy(this)">Chép</button></div><pre>${esc(evFill(t.t,{name:$fc(c.name),sale:c.sale}))}</pre></div>`).join('')}`)}
+const $fc=n=>{const s=String(n||'').replace(/^(N\d+|NT|Vip|VVip|Live|C|A|Chị|Anh|Em)\s+/ig,'').replace(/^(Vip|VVip|Live|C|Chị|Anh)\s+/ig,'').split(/\s+-\s+/)[0].trim();return s||'chị'};
+async function evCustSave(id){const b={id:id||undefined,name:$('#fcName').value,phone:$('#fcPhone').value,kind:$('#fcKind').value,sale:$('#fcSale').value,step:$('#fcStep').value,photo:$('#fcPhoto').value,post:$('#fcPost').value,note:$('#fcNote').value};
+  await api(`/events/${state.evId}/customer`,{method:'POST',body:b});closeModal();toast(id?'Đã lưu':'Đã thêm khách');evReload()}
+async function evCustDel(id){await api(`/events/${state.evId}/customer`,{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá');evReload()}
+function evImport(){
+  evModal(`<div class="row"><h2 style="flex:1;margin:0">Dán danh sách khách</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  <p class="small muted">Chép từ Google Sheet / Excel rồi dán vào. Mỗi dòng một khách, cột theo thứ tự <b>Tên · SĐT · Loại (mới/cũ, để trống = tự xác định theo KiotViet) · Sale · Ghi chú</b>. SĐT đã có trong sự kiện sẽ bỏ qua; tên sale tự khớp với danh sách sale trên CRM.</p>
+  <textarea class="f" id="impTxt" style="min-height:220px;width:100%" placeholder="Nguyễn Thị Lan	0912345678	mới	Ngát	quan tâm mặt nạ"></textarea>
+  <div class="row" style="margin-top:8px"><button class="btn" onclick="evImpPrev()">Xem trước</button><button class="btn primary" id="impGo" disabled onclick="evImpGo()">Nhập vào bước “Data mới”</button></div><div id="impPrev" class="small" style="margin-top:10px"></div>`)}
+const evNoAcc=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase().trim();
+function evMatchSale(x){if(!x)return '';const n=evNoAcc(x);const L=state.sales||[];return L.find(s=>evNoAcc(s)===n)||L.find(s=>evNoAcc(s).endsWith(' '+n))||L.find(s=>evNoAcc(s).includes(n))||x}
+function evImpParse(){const have=new Set(state.ev.customers.map(c=>evPhone(c.phone)).filter(Boolean)),seen=new Set(),out=[];let dup=0;
+  $('#impTxt').value.split(/\r?\n/).forEach(line=>{if(!line.trim())return;const f=line.split(/\t|;/).map(x=>x.trim());if(/^(tên|ten|họ tên|name|khách)/i.test(f[0]))return;
+    const ph=f.find(x=>/^\+?[\d .-]{8,}$/.test(x))||'',name=f[0]===ph?'':f[0],rest=f.filter(x=>x!==ph&&x!==name);
+    const kr=rest.find(x=>/^(mới|moi|cũ|cu|khách mới|khách cũ)$/i.test(x))||'',kind=kr?(/c[uũ]/i.test(kr)?'cu':'moi'):'',r2=rest.filter(x=>x!==kr),np=evPhone(ph);
+    if(np&&(have.has(np)||seen.has(np))){dup++;return}if(np)seen.add(np);out.push({name,phone:ph,kind,sale:evMatchSale(r2[0]||''),note:r2.slice(1).join(' · ')})});
+  return {out,dup}}
+function evImpPrev(){const {out,dup}=evImpParse();state.evImp=out;$('#impGo').disabled=!out.length;
+  $('#impPrev').innerHTML=`<p><b>${out.length}</b> khách sẽ được nhập${dup?`, bỏ qua ${dup} dòng trùng SĐT`:''}.</p>${out.length?`<div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Tên</th><th>SĐT</th><th>Loại</th><th>Sale</th><th>Ghi chú</th></tr></thead><tbody>${out.slice(0,50).map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.phone)}</td><td>${c.kind==='cu'?'Cũ':c.kind==='moi'?'Mới':'<span class="muted">tự xác định</span>'}</td><td>${esc(c.sale)}</td><td>${esc(c.note)}</td></tr>`).join('')}</tbody></table></div>`:''}`}
+async function evImpGo(){$('#impGo').disabled=true;const r=await api(`/events/${state.evId}/import`,{method:'POST',body:{rows:state.evImp||[]}});closeModal();toast(`Đã nhập ${r.added} khách${r.dup?`, bỏ qua ${r.dup} trùng`:''}`);evReload()}
+// ----- ai làm gì -----
+function evRaci(){const tasks=state.ev.tasks,dk=state.evDept||'',today=iso(new Date());
+  const rows=EV_PH.map(([n,w],i)=>{const ts=tasks.filter(t=>t.phase===i&&(!dk||t.dept===dk)).sort((a,b)=>a.off-b.off);if(!ts.length)return '';
+    return `<tr><td colspan="5" style="background:var(--brand-2);color:var(--brand);font-weight:600">Bước ${i+1}. ${n} <span class="small" style="font-weight:400">· ${w}</span></td></tr>`+ts.map(t=>{const due=evDue(t);
+      return `<tr><td><span class="tag d-${t.dept}">${state.ev.depts[t.dept]}</span></td><td class="name">${esc(t.text)}</td><td>${esc(t.owner||'—')}</td><td class="r" style="${due&&t.status!=='done'&&due<today?'color:var(--bad);font-weight:600':''}">${due?dmy(due):evOff(t.off)}</td><td>${{todo:'Cần làm',doing:'Đang làm',done:'✓ Xong'}[t.status||'todo']}</td></tr>`}).join('')}).join('');
+  $('#evView').innerHTML=`<div class="row" style="margin-bottom:10px"><span class="muted small" style="flex:1">Mỗi phòng ban xem đúng phần việc của mình theo thứ tự thời gian. Giao người phụ trách ở tab Tiến độ sự kiện.</span><select class="f" id="evDept2"><option value="">Tất cả phòng ban</option>${Object.entries(state.ev.depts).map(([k,v])=>`<option value="${k}" ${dk===k?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div class="tablewrap"><table><thead><tr><th>Phòng ban</th><th>Việc</th><th>Người làm</th><th class="r">Hạn</th><th>Trạng thái</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">Không có việc</td></tr>'}</tbody></table></div>`;
+  $('#evDept2').onchange=x=>{state.evDept=x.target.value;evRaci()}}
+// ----- mẫu tin -----
+function evTpls(){$('#evView').innerHTML=`<p class="muted small">Chỗ <b>{ten}</b>, <b>{sale}</b> được điền tự động khi mở tin từ thẻ khách. Tên sự kiện và hashtag lấy theo sự kiện đang chọn.</p>
+  <div class="grid g2">${EV_TPL.map(t=>`<div class="evtpl"><div class="row"><b style="flex:1">${t.n}</b><button class="btn small" onclick="evCopy(this)">Chép</button></div><div class="small muted">${t.w}</div><pre>${esc(evFill(t.t,{name:'{ten}',sale:'{sale}'}))}</pre></div>`).join('')}</div>`}
+function evCopy(b){const p=b.closest('.evtpl').querySelector('pre');const sel=()=>{const r=document.createRange();r.selectNodeContents(p);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Đã bôi đen, nhấn Ctrl+C để chép')};
+  try{navigator.clipboard.writeText(p.textContent).then(()=>toast('Đã chép tin nhắn'),sel)}catch(e){sel()}}
+// ----- sự kiện -----
+function evForm(edit){const e=edit&&state.ev?state.ev.event:{name:'',date:'',place:'',hashtag:''};
+  evModal(`<div class="row"><h2 style="flex:1;margin:0">${edit?'Sửa sự kiện':'Sự kiện mới'}</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
+  <label class="lb">Tên sự kiện<input class="f" id="feName" value="${esc(e.name)}" placeholder="RCD 2026 – Dermaxilic"></label>
+  <div class="evgrid"><label class="lb">Ngày diễn ra (ngày D)<input class="f" id="feDate" type="date" value="${esc(e.date||'')}"></label><label class="lb">Địa điểm<input class="f" id="fePlace" value="${esc(e.place||'')}"></label></div>
+  <label class="lb">Hashtag khách đăng bài<input class="f" id="feTag" value="${esc(e.hashtag||'')}" placeholder="#Dermaxilic #RCD2026"></label>
+  <p class="small muted">Hạn từng việc tự tính theo ngày D (D-7 là 7 ngày trước sự kiện).${edit?'':' Sự kiện mới dùng sẵn 31 việc mẫu cho 6 bước; thêm hoặc xoá việc riêng ở tab Tiến độ.'}</p>
+  <div class="row"><button class="btn primary" onclick="evSave(${edit?1:0})">Lưu</button></div>`)}
+async function evSave(edit){const b={name:$('#feName').value,date:$('#feDate').value,place:$('#fePlace').value,hashtag:$('#feTag').value};if(edit)b.id=state.evId;
+  const r=await api('/events',{method:'POST',body:b});closeModal();toast('Đã lưu');state.evId=r.id;state.evPhase=null;events()}
+function evModal(html){const mb=$('#modalBody');mb.style.width='min(720px,100%)';mb.innerHTML=html;$('#modal').classList.add('open');const f=mb.querySelector('input,textarea,select');if(f)f.focus()}
+function evDnD(kind){let dragId=null;
+  document.querySelectorAll('.evboard .evcard').forEach(c=>{c.addEventListener('dragstart',x=>{dragId=+c.dataset.id;c.classList.add('dragging');x.dataTransfer.effectAllowed='move';try{x.dataTransfer.setData('text/plain',c.dataset.id)}catch(_){}});c.addEventListener('dragend',()=>c.classList.remove('dragging'))});
+  document.querySelectorAll(`.evcol[data-drop="${kind}"]`).forEach(col=>{col.addEventListener('dragover',x=>{x.preventDefault();col.classList.add('over')});col.addEventListener('dragleave',x=>{if(!col.contains(x.relatedTarget))col.classList.remove('over')});
+    col.addEventListener('drop',x=>{x.preventDefault();col.classList.remove('over');const id=dragId||+x.dataTransfer.getData('text/plain');if(!id)return;
+      if(kind==='task'){const t=state.ev.tasks.find(y=>y.id===id);if(t&&(t.status||'todo')!==col.dataset.key)evTaskSet(id,col.dataset.key)}else evMove(id,col.dataset.key)})})}
 
 async function customers(){
   const rows=await api('/report/customers?'+qs());const m=$('#main');
