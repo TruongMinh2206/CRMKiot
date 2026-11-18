@@ -112,6 +112,23 @@ CREATE TABLE IF NOT EXISTS campaign_entries (
   carry_note TEXT, registered TEXT, reward TEXT, owner TEXT, note TEXT, paid TEXT,
   sheet_value REAL, sheet_last TEXT
 );
+
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT, place TEXT, hashtag TEXT,
+  phase INTEGER DEFAULT 0, created TEXT, created_by TEXT
+);
+CREATE TABLE IF NOT EXISTS event_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, tid TEXT, phase INTEGER, dept TEXT, text TEXT,
+  off INTEGER DEFAULT 0, custom INTEGER DEFAULT 0, status TEXT DEFAULT 'todo', owner TEXT, note TEXT,
+  updated TEXT, updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_event_tasks ON event_tasks(event_id);
+CREATE TABLE IF NOT EXISTS event_customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, name TEXT, phone TEXT, kind TEXT DEFAULT 'moi',
+  sale TEXT, step TEXT DEFAULT 's0', photo TEXT, post TEXT, note TEXT, customer_id INTEGER, history TEXT,
+  created TEXT, updated TEXT, updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_event_customers ON event_customers(event_id);
 """
 
 

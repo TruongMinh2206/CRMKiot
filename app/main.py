@@ -15,9 +15,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
 from .main_auth import signer, COOKIE, _hash, current_user, scope, allowed, is_mgr, team_names, col_in  # noqa
-from . import extras, campaign
+from . import extras, campaign, events
 app.include_router(extras.router)
 app.include_router(campaign.router)
+app.include_router(events.router)
 
 
 def sale_scope(user, sale):
