@@ -387,6 +387,14 @@ def _batch(c, sid, reqs, what, limit=3_000_000):
             size += n
 
 
+def _vn(ts):
+    """Giờ đồng bộ lưu theo giờ máy chủ (UTC) -> giờ Việt Nam."""
+    try:
+        return (datetime.fromisoformat(ts) + timedelta(hours=7)).strftime("%d/%m/%Y %H:%M")
+    except (TypeError, ValueError):
+        return ts or ""
+
+
 def run(until=None, replace=False):
     sid = sheet_id()
     if not sid:
@@ -425,7 +433,7 @@ def run(until=None, replace=False):
                 results[g["grp"]] = res
             stamp = datetime.now(timezone(timedelta(hours=7))).strftime("%d/%m/%Y %H:%M")
             scope = (f"Chỉ tính hoá đơn đến {until[8:10]}/{until[5:7]}/{until[:4]} {until[11:16]}" if until
-                     else f"Tính đến lần đồng bộ KiotViet {(d.get('as_of') or '')[:16].replace('T', ' ')}")
+                     else "Tính đến lần đồng bộ KiotViet " + _vn(d.get("as_of")))
             grids[TONG] = build_tong(groups, titles, gids, results, stamp, scope, sep)
 
             # dựng lại file: thêm tab tạm, xoá tab cũ, tạo tab mới với mã tab cố định, xoá tab tạm
