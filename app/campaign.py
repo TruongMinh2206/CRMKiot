@@ -427,12 +427,14 @@ async def campaign_gsheet(request: Request, user=Depends(current_user)):
     """Ghi bảng thưởng chiến dịch sang Google Sheet (cùng file với bảng doanh số)."""
     if not is_mgr(user):
         raise HTTPException(403)
-    from . import gsheet
+    # trang CRM bản cũ (trình duyệt chưa tải lại) vẫn gọi đường này: chuyển sang xuất ra file riêng
+    from . import campaign_export, gsheet
     b = await request.json()
     try:
-        return gsheet.export_campaign(sheet_tables(user, b.get("until")), bool(b.get("replace")))
+        r = campaign_export.run(b.get("until"), bool(b.get("replace")))
     except gsheet.ConfigError as e:
         raise HTTPException(400, str(e))
+    return {**r, "rows": r["groups"], "lines": r["tabs"]}
 
 
 @router.get("/campaign/sheet")

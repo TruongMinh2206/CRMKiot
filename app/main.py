@@ -443,7 +443,8 @@ def health():
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # luôn tải trang mới nhất sau mỗi lần cập nhật CRM, tránh trình duyệt giữ bản cũ
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
