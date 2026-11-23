@@ -25,8 +25,17 @@
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--brand)}
 button,input,select{font:inherit;color:inherit}
-.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
-nav{background:var(--surface);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.app{min-height:100vh}
+/* Menu gọn trong nút hamburger: thanh trên cùng + ngăn kéo trượt từ trái, chỉ hiện khi bấm mở */
+.appbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;height:52px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.appbar .logo{padding:0;font-size:15px}.appbar .mark{width:26px;height:26px}
+.appbar-page{display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-weight:600;padding-left:12px;border-left:1px solid var(--border);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navbtn{padding:8px;line-height:0;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center}.navbtn .ic{width:20px;height:20px}
+.navscrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:65}.navscrim[hidden]{display:none}
+nav{background:var(--surface);border-right:1px solid var(--border);padding:14px 14px 18px;position:fixed;top:0;left:0;bottom:0;width:min(280px,85vw);overflow-y:auto;z-index:70;display:flex;flex-direction:column;gap:4px;transform:translateX(-100%);visibility:hidden;transition:transform .2s ease-in,visibility 0s linear .2s}
+nav.open{transform:none;visibility:visible;box-shadow:var(--shadow);transition:transform .2s ease-out,visibility 0s}
+.navhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.navhead .logo{padding:4px 8px}
+@media (max-width:520px){.appbar .logo{display:none}.appbar-page{border-left:0;padding-left:0}}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 8px 16px}
 .logo .mark{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800}
 nav a.item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--text-2);text-decoration:none;font-weight:500}
@@ -49,7 +58,7 @@ main{padding:22px 28px 60px;min-width:0}
 .grid{display:grid;gap:14px}
 .g4{grid-template-columns:repeat(4,1fr)} .g5{grid-template-columns:repeat(5,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
 @media (max-width:1100px){.g4,.g5{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.g2{grid-template-columns:1fr}}
-@media (max-width:760px){.app{grid-template-columns:1fr}nav{position:static;height:auto;flex-direction:row;flex-wrap:wrap}nav .spacer,nav .user{display:none}main{padding:16px}.g4{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){main{padding:16px}.g4{grid-template-columns:1fr 1fr}}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);min-width:0}
 .card h3{margin:0 0 10px;font-size:14px;font-weight:600;color:var(--text-2);display:flex;align-items:center;gap:8px}
 .card h3 .x{margin-left:auto;font-weight:400;font-size:12px;color:var(--muted)}
@@ -205,7 +214,8 @@ const ICONS={
  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
  hash:'<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="m16 3-2 18"/>',
  chevron:'<path d="m9 18 6-6-6-6"/>',
- x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'};
+ x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ menu:'<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>'};
 const ic=n=>`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[n]||''}</svg>`;
 async function api(path,opt={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});
@@ -237,15 +247,23 @@ function render(){
     <div class="err" id="lerr"></div><button class="btn primary" style="width:100%" id="lbtn">Đăng nhập</button></div></div>`;
     const go=async()=>{try{state.user=await api('/login',{method:'POST',body:{username:$('#u').value,password:$('#p').value}});boot()}catch(e){$('#lerr').textContent='Sai tài khoản hoặc mật khẩu'}};
     $('#lbtn').onclick=go;$('#p').onkeydown=e=>{if(e.key==='Enter')go()};$('#u').onkeydown=e=>{if(e.key==='Enter')$('#p').focus()};$('#u').focus();return}
-  const pages=PAGES.filter(p=>p[0]!=='settings'||state.user.role==='admin');
-  root.innerHTML=`<div class="app"><nav><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
+  const pages=PAGES.filter(p=>p[0]!=='settings'||state.user.role==='admin'),cur=pages.find(p=>p[0]===state.page)||pages[0];
+  root.innerHTML=`<div class="app"><header class="appbar"><button class="btn navbtn" id="navBtn" aria-label="Mở menu" aria-expanded="false" aria-controls="nav">${ic('menu')}</button>
+    <div class="logo"><span class="mark">C</span>CRM KiotViet</div><span class="appbar-page">${ic(cur[2])}${cur[1]}</span></header>
+    <div class="navscrim" id="navScrim" hidden></div>
+    <nav id="nav" aria-label="Menu chính" inert><div class="navhead"><div class="logo"><span class="mark">C</span>CRM KiotViet</div><button class="btn navbtn" id="navClose" aria-label="Đóng menu">${ic('x')}</button></div>
     ${pages.map(p=>`<a class="item ${state.page===p[0]?'active':''}" href="#${p[0]}" ${state.page===p[0]?'aria-current="page"':''}>${ic(p[2])}${p[1]}</a>`).join('')}
     <div class="spacer"></div><div class="sync" id="syncbar"></div>
     <div class="user">${esc(state.user.display_name)} · ${ROLE[state.user.role]||state.user.role}<br><a href="#" id="logout">Đăng xuất</a></div></nav>
     <main id="main"></main></div>`;
   $('#logout').onclick=async e=>{e.preventDefault();await api('/logout',{method:'POST'});state.user=null;render()};
+  $('#navBtn').onclick=()=>navSet(true);$('#navClose').onclick=()=>navSet(false);$('#navScrim').onclick=()=>navSet(false);
+  document.querySelectorAll('#nav a.item').forEach(a=>a.addEventListener('click',()=>navSet(false)));
   loadPage();refreshSync();
 }
+// Mở / đóng menu: khi đóng thì cả menu "trơ" (không tab tới được), khi mở thì đưa focus vào mục đang xem
+function navSet(open){const n=$('#nav'),b=$('#navBtn');if(!n)return;n.classList.toggle('open',open);n.inert=!open;$('#navScrim').hidden=!open;b.setAttribute('aria-expanded',String(open));
+  if(open)(n.querySelector('a.item.active')||n.querySelector('a.item')).focus();else if(n.contains(document.activeElement)||document.activeElement===document.body)b.focus()}
 function topbar(title,{dates=true,sale=true,extra='',exportKey=null}={}){
   const saleSel=sale&&state.user.role!=='sale'?`<select id="fSale"><option value="">Tất cả sale</option>${state.sales.map(s=>`<option ${s===state.sale?'selected':''}>${esc(s)}</option>`).join('')}</select>`:'';
   const dateIn=dates?`<div class="chips" id="quick">${['Tháng này','Tháng trước','7 ngày','30 ngày','Quý này','Năm nay'].map(q=>`<span class="chip">${q}</span>`).join('')}</div>
@@ -1136,7 +1154,7 @@ async function openCustomer(id){
   chart('cm',{type:'bar',data:{labels:d.monthly.map(x=>x.ym.slice(5)+'/'+x.ym.slice(2,4)),datasets:[{data:d.monthly.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+d.monthly[c.dataIndex].n+' HĐ'}}}})});
 }
 function closeModal(){$('#modal').classList.remove('open');$('#modalBody').style.width='';const o=state._opener;state._opener=null;if(o&&o.isConnected)o.focus()}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('open'))closeModal()});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if($('#modal').classList.contains('open'))closeModal();else if($('#nav.open'))navSet(false)});
 $('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};
 
 // Sort table by clicking header (simple, client side)
