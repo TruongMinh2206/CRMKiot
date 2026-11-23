@@ -17,6 +17,7 @@ tính sẵn các báo cáo mà kế toán đang phải làm tay:
 | KPI sale | Chỉ tiêu tháng (doanh số, KH mới, KH có mua), % đạt, dự báo cuối tháng, bảng xếp hạng |
 | Khách tiềm năng | Lead chưa có trên KiotViet: nguồn, sale, phễu Mới → Đã liên hệ → Đang tư vấn → Chốt/Thất bại, lý do thất bại, tỷ lệ chốt theo sale/nguồn, dán từ Excel, tự nhận diện khi SĐT đã có trên KiotViet |
 | Sự kiện | Điều phối liên phòng ban cho một sự kiện (vd RCD): mục tiêu chung + chỉ tiêu (data mới, khách mua, doanh số, bài hashtag, trần chi phí) tự tính số thực tế; 6 bước, mỗi việc ghi phải chờ việc nào của phòng khác và góp vào chỉ tiêu nào; xong việc tự ghi **bàn giao** cho phòng nhận; **cổng duyệt** của BGĐ chặn chuyển bước; bảng "các phòng đang ở đâu", điểm nghẽn, trao đổi ngay trong việc, ngân sách theo phòng, bài học và nhân bản quy trình cho sự kiện sau; khách sau sự kiện nối KiotViet theo SĐT. Việc trễ hạn hiện ở trang Tổng quan |
+| Công cụ ngoại vi | Các công cụ nhỏ chạy ở nơi khác (Sáng kiến & Cảm ơn, Ghép thư mời, Ảnh sang link, Form RCD, Tìm ảnh AI, Báo cáo TikTok…) gom về một tab; mọi tài khoản đều dùng được, mở ngay trong CRM (trang chặn nhúng thì mở tab mới). Quản trị thêm / sửa danh sách |
 
 Mọi báo cáo đều **xuất Excel** (nút ⬇ Excel), lọc theo khoảng ngày và theo sale.
 Bấm vào tên khách để xem hồ sơ: lịch sử hoá đơn, hàng hay mua, doanh số theo tháng, ghi chú CRM, gán lại sale.

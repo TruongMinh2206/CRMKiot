@@ -18,10 +18,11 @@ STATIC = Path(__file__).parent / "static"
 from .main_auth import (COOKIE, current_user, scope, allowed, is_mgr, is_admin, can, team_names, col_in,  # noqa
                         PAGES, PERMS, SCOPES, ROLE_DEPT, hash_pw, check_pw, resolve, session_cookie, seed_roles,
                         roles_list, slug, pages_for)
-from . import extras, campaign, events
+from . import extras, campaign, events, tools
 app.include_router(extras.router)
 app.include_router(campaign.router)
 app.include_router(events.router)
+app.include_router(tools.router)
 
 
 def sale_scope(user, sale):
@@ -585,6 +586,7 @@ def startup():
     db.init()
     backup.restore()
     seed_roles()
+    tools.seed()
     events.upgrade()
     cd = db.get_meta("churn_days")
     if cd:
