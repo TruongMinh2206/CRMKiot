@@ -224,6 +224,34 @@ table{font-size:13px}th{background:var(--surface);color:var(--muted);font-weight
 .cmdit{display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;border:0;border-radius:7px;background:none;font:inherit;color:inherit;text-align:left}
 .cmdit[aria-selected="true"]{background:color-mix(in srgb,var(--text) 6%,transparent)}
 .cmdit .small{margin-left:auto;text-align:right}.cmdempty{padding:18px;text-align:center;color:var(--muted);font-size:13px}
+/* chống tràn khung: ô lưới và popup phải co được */
+.grid>*,.evgrid>*,.kv>*{min-width:0}.kv>span{overflow-wrap:anywhere}
+.modal .card{max-width:100%}.modal select,.modal textarea,.modal input:not([type=checkbox]):not([type=radio]){max-width:100%}.modal textarea{width:100%}
+/* trang Công việc */
+.tkhelp{margin:-2px 0 14px;color:var(--muted);font-size:13px;line-height:1.5}
+.tktabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:0 0 14px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tktabs button{background:none;border:0;border-bottom:2px solid transparent;padding:9px 14px;font:inherit;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:-1px;display:inline-flex;gap:7px;align-items:center}
+.tktabs button.on{color:var(--text);border-bottom-color:var(--brand)}.tktabs button:hover{color:var(--text)}
+.tkn{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:var(--surface-2);color:var(--text-2);font-size:11.5px;font-weight:600;text-align:center;line-height:18px;margin-left:4px}
+.tktabs .tkn{margin-left:0}.tkn.bad{background:var(--bad-2);color:var(--bad-ink)}.tkn.warn{background:var(--warn-2);color:var(--warn-ink)}.chip.on .tkn{background:color-mix(in srgb,currentColor 20%,transparent);color:inherit}
+.tkchips{margin-bottom:12px}.tkchips .chip{display:inline-flex;align-items:center;font:inherit;font-size:12.5px}
+.tklist,.sg{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden;margin-bottom:14px}
+.tkh{font-size:12px;font-weight:600;padding:9px 16px;background:var(--surface-2);border-bottom:1px solid var(--border);color:var(--text-2)}.tkh.bad{color:var(--bad-ink)}.tkh.warn{color:var(--warn-ink)}
+.tk{display:flex;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--border);cursor:pointer}.tk:hover{background:var(--surface-2)}
+.tkchk{flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--muted);background:none;cursor:pointer;padding:0;display:inline-block}
+.tkchk:hover{border-color:var(--good);background:var(--good-2)}.tkdemo{vertical-align:-5px;margin:0 2px;cursor:default;width:16px;height:16px}
+.tkb{flex:1;min-width:0}.tkt{font-weight:500;overflow-wrap:anywhere}.tkm{font-size:12.5px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.tkr{display:flex;gap:10px;align-items:center;flex:none}
+.tkdue{font-size:12px;font-weight:600;color:var(--muted);min-width:74px;text-align:right}.tkdue.bad{color:var(--bad-ink)}.tkdue.warn{color:var(--warn-ink)}
+.tkmore{display:block;width:100%;padding:10px;border:0;border-top:1px solid var(--border);background:none;font:inherit;font-size:13px;color:var(--brand);cursor:pointer}.tkmore:hover{background:var(--surface-2)}
+.sgh{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.sgi{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border)}.sgi .btn{flex:none}
+.tkh2{font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:8px}.tkhr{height:1px;background:var(--border);margin:16px 0}
+#tkRes .chip{font:inherit;font-size:12.5px}
+@media (max-width:760px){.tk{flex-wrap:wrap}.tkr{width:100%;padding-left:32px}.tkdue{text-align:left}.sgi{flex-wrap:wrap}.sgh{flex-wrap:wrap}}
+/* nền tối: thanh cuộn và ô chọn theo màu nền tối */
+:root{color-scheme:light}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark}}:root[data-theme="dark"]{color-scheme:dark}
+.modal select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:4px 8px;min-height:30px}
 </style>
 </head>
 <body>
@@ -1191,29 +1219,82 @@ async function board(){
 // ============================================================================
 // Công việc & nhắc việc
 // ============================================================================
+// Trang Công việc: một danh sách duy nhất + 3 tab (Việc cần làm · Gợi ý từ hệ thống · Đã xong)
+const TK_TYPE={call:'Gọi điện',visit:'Ghé thăm',message:'Nhắn tin',birthday:'Chúc sinh nhật',reorder:'Nhắc mua lại',winback:'Kéo lại KH',debt:'Nhắc công nợ',other:'Khác'};
+const TK_RESULTS=['Đã liên hệ được','Không nghe máy','Hẹn gọi lại','Đã đặt hàng','Chưa có nhu cầu'];
+const TK_SUG={debt:['Công nợ quá hạn','Khách đang nợ quá hạn — nhắc khách thanh toán'],birthday:['Sinh nhật trong 7 ngày tới','Gửi lời chúc, giữ quan hệ với khách'],
+  reorder:['Đến kỳ mua lại','Đã quá chu kỳ mua thông thường của khách'],winback:['Khách giá trị đang ngừng mua','Từng mua nhiều nhưng 3–6 tháng nay chưa quay lại']};
+const tkPhone=s=>{const m=String(s||'').match(/0\d{9,10}/);return m?m[0]:''};
+const tkDays=s=>Math.round((new Date(String(s).slice(0,10))-new Date(iso(new Date())))/864e5);
+const tkWho=t=>t.customer_name?`<a href="#" onclick="event.stopPropagation();openCustomer(${t.customer_id});return false">${esc(t.customer_name)}</a>`
+  :t.lead_name?`<a href="#" onclick="event.stopPropagation();openLead(${t.lead_id});return false">${esc(t.lead_name)}</a> <span class="tag info">Tiềm năng</span>`:'<span class="muted">Không gắn khách</span>';
+const tkAct=(f,id,txt,cls='')=>`<button class="btn small ${cls}" onclick="evRun(this,()=>${f})">${txt}</button>`;
+
 async function tasks(){
-  const m=$('#main');const sale=state.user.scope==='own'?'':state.sale;
-  const [open,sug]=await Promise.all([api('/tasks?status=open&sale='+encodeURIComponent(sale)),api('/tasks/suggest?sale='+encodeURIComponent(sale))]);
-  const today=iso(new Date());const od=open.filter(t=>t.overdue),td=open.filter(t=>t.today),up=open.filter(t=>!t.overdue&&!t.today);
-  const TT={call:'Gọi điện',visit:'Ghé thăm',message:'Nhắn tin',birthday:'Chúc sinh nhật',reorder:'Nhắc mua lại',winback:'Kéo lại KH',debt:'Nhắc công nợ',other:'Khác'};
-  const row=t=>`<div class="task"><input type="checkbox" onchange="doneTask(${t.id})" title="Hoàn thành"><div class="t"><b>${esc(t.title)} <span class="tag ${t.overdue?'bad':t.today?'warn':''}">${t.overdue?'quá hạn ':''}${dmy(t.due_date)}</span> <span class="tag">${TT[t.type]||t.type}</span></b>
-    <span class="small muted">${t.customer_name?`<a href="#" onclick="openCustomer(${t.customer_id});return false">${esc(t.customer_name)}</a> · ${esc(t.contact_number||'')}`:t.lead_name?`🧲 <a href="#" onclick="openLead(${t.lead_id});return false">${esc(t.lead_name)}</a> · ${esc(t.lead_phone||'')}`:''} ${t.assigned_to?'· '+esc(t.assigned_to):''}</span></div>
-    <button class="btn small" onclick="cancelTask(${t.id})">Bỏ</button></div>`;
-  const sugNew=sug.filter(x=>!x.exists);const kinds={debt:'💳 Công nợ quá hạn',birthday:'🎂 Sinh nhật',reorder:'🔁 Đến kỳ mua lại',winback:'🔥 Khách giá trị đang ngừng mua'};
-  m.innerHTML=topbar('Công việc & nhắc việc',{dates:false})+`<div class="grid g4">
-    <div class="card tile"><h3>Quá hạn</h3><div class="v" style="color:var(--bad)">${od.length}</div></div><div class="card tile"><h3>Hôm nay</h3><div class="v" style="color:var(--warn)">${td.length}</div></div>
-    <div class="card tile"><h3>Sắp tới</h3><div class="v">${up.length}</div></div><div class="card tile"><h3>Gợi ý chưa tạo</h3><div class="v" style="color:var(--brand)">${sugNew.length}</div><div class="d">từ công nợ, sinh nhật, chu kỳ mua, ngừng mua</div></div></div>
-  <div class="grid g2" style="margin-top:14px"><div class="card"><h3>Việc cần làm <span class="x"><a href="#" onclick="newTask();return false">+ Thêm việc</a> · <a href="#" onclick="state.taskHist=1;loadPage();return false">đã xong</a></span></h3>
-    ${od.length?'<h4 style="margin:8px 0 0;color:var(--bad)">Quá hạn</h4>'+od.map(row).join(''):''}${td.length?'<h4 style="margin:8px 0 0;color:var(--warn)">Hôm nay</h4>'+td.map(row).join(''):''}${up.length?'<h4 style="margin:8px 0 0">Sắp tới</h4>'+up.map(row).join(''):''}${open.length?'':'<div class="empty">Không có việc nào. Lấy gợi ý bên phải hoặc bấm + Thêm việc.</div>'}</div>
-    <div class="card"><h3>Gợi ý tự động <span class="x">${sugNew.length?`<a href="#" onclick="addSug('all');return false">Tạo tất cả (${sugNew.length})</a>`:''}</span></h3>
-    ${Object.keys(kinds).map(k=>{const l=sugNew.filter(x=>x.kind===k);if(!l.length)return '';return `<h4 style="margin:10px 0 4px">${kinds[k]} (${l.length}) <a href="#" class="small" onclick="addSug('${k}');return false">tạo nhóm này</a></h4>`+l.slice(0,15).map(x=>`<div class="task"><button class="btn small" onclick="addSug(${JSON.stringify(x.auto_key)})">+ Tạo</button><div class="t"><b><a href="#" onclick="openCustomer(${x.customer_id});return false">${esc(x.customer_name)}</a> <span class="muted small">${esc(x.phone||'')}</span></b><span class="small muted">${esc(x.reason)} · ${esc(x.sale)}</span></div></div>`).join('')+(l.length>15?`<div class="small muted">… và ${l.length-15} khách nữa</div>`:'')}).join('')||'<div class="empty">Không có gợi ý mới</div>'}</div></div>`;
-  bindTopbar();window._sug=sug;
-  if(state.taskHist){state.taskHist=0;const hist=await api('/tasks?status=done&sale='+encodeURIComponent(sale));m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Đã xong / đã bỏ (300 gần nhất)</h3><div class="tablewrap"><table><thead><tr><th>Việc</th><th>Khách</th><th>Sale</th><th>Hạn</th><th>Xong lúc</th><th>Kết quả</th><th>TT</th></tr></thead><tbody>${hist.map(t=>`<tr><td class="name">${esc(t.title)}</td><td>${esc(t.customer_name||t.lead_name||'')}</td><td>${esc(t.assigned_to||'')}</td><td>${dmy(t.due_date)}</td><td>${(t.done_at||'').replace('T',' ')}</td><td class="name">${esc(t.result||'')}</td><td><span class="tag ${t.status==='done'?'good':''}">${t.status==='done'?'Xong':'Bỏ'}</span></td></tr>`).join('')}</tbody></table></div></div>`)}
-}
-async function doneTask(id){const r=prompt('Kết quả (gọi được/không nghe máy/đã đặt hàng...):','');if(r===null){loadPage();return}await api('/tasks',{method:'POST',body:{id,status:'done',result:r}});toast('Đã hoàn thành');loadPage()}
-async function cancelTask(id){if(confirm('Bỏ việc này?')){await api('/tasks',{method:'POST',body:{id,status:'cancelled'}});loadPage()}}
+  const sale=state.user.scope==='own'?'':state.sale,q=encodeURIComponent(sale);
+  const [open,sug]=await Promise.all([api('/tasks?status=open&sale='+q),api('/tasks/suggest?sale='+q)]);
+  window._tk={open,sug:sug.filter(x=>!x.exists),q};window._sug=sug;
+  if(!state.tk)state.tk={tab:'open',f:'all',more:{}};
+  tkDraw()}
+function tkDraw(){
+  const K=window._tk,S=state.tk,open=K.open,od=open.filter(t=>t.overdue),td=open.filter(t=>t.today&&!t.overdue),up=open.filter(t=>!t.overdue&&!t.today);
+  const tabs=[['open','Việc cần làm',open.length],['sug','Gợi ý từ hệ thống',K.sug.length],['done','Đã xong',null]];
+  let body='';
+  if(S.tab==='open'){
+    const fl=[['all','Tất cả',open.length,''],['od','Quá hạn',od.length,'bad'],['td','Hôm nay',td.length,'warn'],['up','Sắp tới',up.length,'']];
+    const secs=[['od','Quá hạn',od,'bad'],['td','Hôm nay',td,'warn'],['up','Sắp tới',up,'']].filter(s=>S.f==='all'||S.f===s[0]);
+    const shown=secs.reduce((a,s)=>a+s[2].length,0);
+    body=`<div class="chips tkchips">${fl.map(([k,l,n,c])=>`<button class="chip ${S.f===k?'on':''}" onclick="tkF('${k}')">${l}<span class="tkn ${S.f===k?'':c}">${n}</span></button>`).join('')}</div>`+
+    (shown?`<div class="tklist">${secs.filter(s=>s[2].length).map(([k,l,list,c])=>{const lim=S.more[k]?list.length:20;
+      return `<div class="tkh ${c}">${l} <span class="tkn">${list.length}</span></div>${list.slice(0,lim).map(tkRow).join('')}${list.length>lim?`<button class="tkmore" onclick="tkMore('${k}')">Xem thêm ${list.length-lim} việc</button>`:''}`}).join('')}</div>`
+      :`<div class="card empty"><h3 style="justify-content:center">${open.length?'Không có việc nào ở mục này':'Bạn đã làm hết việc 🎉'}</h3><p>${K.sug.length?`Hệ thống tìm được <b>${K.sug.length}</b> khách nên chăm sóc.`:'Bấm “Thêm việc” để tạo việc mới.'}</p>${K.sug.length?'<button class="btn primary" onclick="tkTab(\'sug\')">Xem gợi ý</button>':''}</div>`);
+  }else if(S.tab==='sug'){
+    const keys=Object.keys(TK_SUG).filter(k=>K.sug.some(x=>x.kind===k));
+    body=`<p class="tkhelp" style="margin-top:0">Hệ thống tự rà dữ liệu bán hàng và đề xuất khách nên liên hệ. Bấm <b>+ Thêm việc</b> để đưa vào danh sách của bạn; không thêm thì không có gì thay đổi.</p>`+
+    (keys.length?keys.map(k=>{const l=K.sug.filter(x=>x.kind===k),lim=S.more['s'+k]?l.length:8;
+      return `<div class="sg"><div class="sgh"><div><b>${TK_SUG[k][0]}</b> <span class="tkn">${l.length}</span><div class="small muted">${TK_SUG[k][1]}</div></div>${tkAct(`addSug('${k}')`,0,`Thêm cả nhóm (${l.length})`)}</div>
+      ${l.slice(0,lim).map(x=>`<div class="sgi"><div class="tkb"><div class="tkt"><a href="#" onclick="openCustomer(${x.customer_id});return false">${esc(x.customer_name)}</a> <span class="muted small">${esc(tkPhone(x.phone)||'')}</span></div><div class="tkm">${esc(x.reason)}${state.user.scope!=='own'?' · '+esc(x.sale):''}</div></div>${tkAct(`addSug(${JSON.stringify(x.auto_key).replace(/"/g,'&quot;')})`,0,'+ Thêm việc')}</div>`).join('')}
+      ${l.length>lim?`<button class="tkmore" onclick="tkMore('s${k}')">Xem thêm ${l.length-lim} khách</button>`:''}</div>`}).join('')
+      :'<div class="card empty"><h3 style="justify-content:center">Chưa có gợi ý mới</h3><p>Gợi ý tự cập nhật theo dữ liệu bán hàng.</p></div>');
+  }else body='<div class="card" id="tkHist"><div class="empty">Đang tải…</div></div>';
+  $('#main').innerHTML=topbar('Công việc',{dates:false,extra:'<button class="btn primary" onclick="newTask()">＋ Thêm việc</button>'})+
+    `<p class="tkhelp">Việc cần làm với khách hàng. Làm xong thì bấm vòng tròn <span class="tkchk tkdemo"></span> bên trái để ghi kết quả; bấm vào dòng việc để dời hạn hoặc bỏ.</p>
+    <div class="tktabs" role="tablist">${tabs.map(([k,l,n])=>`<button role="tab" aria-selected="${S.tab===k}" class="${S.tab===k?'on':''}" onclick="tkTab('${k}')">${l}${n==null?'':`<span class="tkn">${n}</span>`}</button>`).join('')}</div>${body}`;
+  bindTopbar();if(S.tab==='done')tkHist()}
+function tkRow(t){const d=tkDays(t.due_date),lbl=d<0?`Trễ ${-d} ngày`:d===0?'Hôm nay':d===1?'Ngày mai':dmy(t.due_date),cls=d<0?'bad':d===0?'warn':'',ph=tkPhone(t.contact_number||t.lead_phone);
+  return `<div class="tk" onclick="taskModal(${t.id})"><button class="tkchk" aria-label="Hoàn thành: ${esc(t.title)}" onclick="event.stopPropagation();taskModal(${t.id})"></button>
+    <div class="tkb"><div class="tkt">${esc(t.title)}</div><div class="tkm">${tkWho(t)}${ph?` · <a href="tel:${ph}" onclick="event.stopPropagation()">${ph}</a>`:''}${t.assigned_to&&state.user.scope!=='own'?' · '+esc(t.assigned_to):''}</div></div>
+    <div class="tkr"><span class="tag">${esc(TK_TYPE[t.type]||t.type)}</span><span class="tkdue ${cls}">${lbl}</span></div></div>`}
+function tkTab(k){state.tk.tab=k;tkDraw()}
+function tkF(k){state.tk.f=k;tkDraw()}
+function tkMore(k){state.tk.more[k]=1;tkDraw()}
+async function tkHist(){const h=await api('/tasks?status=done&sale='+window._tk.q),el=$('#tkHist');if(!el)return;
+  el.innerHTML=`<h3>Đã xong hoặc đã bỏ <span class="x">${h.length} việc gần nhất</span></h3>`+(h.length?`<div class="tablewrap"><table><thead><tr><th>Việc</th><th>Khách</th><th>Sale</th><th>Hạn</th><th>Xong lúc</th><th>Kết quả</th><th>TT</th></tr></thead><tbody>${h.map(t=>`<tr><td class="name">${esc(t.title)}</td><td>${esc(t.customer_name||t.lead_name||'')}</td><td>${esc(t.assigned_to||'')}</td><td>${dmy(t.due_date)}</td><td>${(t.done_at||'').replace('T',' ').slice(0,16)}</td><td class="name">${esc(t.result||'')}</td><td><span class="tag ${t.status==='done'?'good':''}">${t.status==='done'?'Xong':'Bỏ'}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có việc nào hoàn thành.</div>')}
+function taskModal(id){const t=window._tk.open.find(x=>x.id===id);if(!t)return;const ph=tkPhone(t.contact_number||t.lead_phone);
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${esc(t.title)}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <p class="small muted" style="margin:6px 0 16px">${tkWho(t)}${ph?` · <a href="tel:${ph}">${ph}</a>`:''} · hạn ${dmy(t.due_date)}${t.assigned_to?' · '+esc(t.assigned_to):''}</p>
+  <div class="tkh2">Kết quả <span class="muted">(không bắt buộc)</span></div>
+  <div class="chips" id="tkRes">${TK_RESULTS.map(r=>`<button type="button" class="chip" aria-pressed="false" onclick="tkPick(this)">${r}</button>`).join('')}</div>
+  <input class="f" id="tkNote" placeholder="Ghi chú thêm…" style="width:100%;margin:10px 0 14px" aria-label="Ghi chú">
+  <button class="btn primary" onclick="evRun(this,()=>tkDone(${id}))">${ic('tasks')} Đã làm xong</button>
+  <div class="tkhr"></div>
+  <div class="tkh2">Chưa làm được? Dời hạn sang</div>
+  <div class="row"><button class="btn small" onclick="evRun(this,()=>tkMove(${id},1))">Ngày mai</button><button class="btn small" onclick="evRun(this,()=>tkMove(${id},3))">3 ngày nữa</button><button class="btn small" onclick="evRun(this,()=>tkMove(${id},7))">1 tuần nữa</button>
+    <input class="f" type="date" id="tkDate" aria-label="Chọn ngày" style="padding:4px 8px"><button class="btn small" onclick="evRun(this,()=>tkMove(${id},0))">Dời</button></div>
+  <div class="tkhr"></div>
+  <button class="btn small danger" onclick="$('#tkDel').hidden=false">Bỏ việc này</button>
+  <div id="tkDel" class="evconfirm" hidden>Bỏ hẳn việc này (không làm nữa)? <button class="btn small" onclick="$('#tkDel').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>tkCancel(${id}))">Bỏ việc</button></div>`);
+  $('#modalBody').style.width='min(520px,100%)'}
+function tkPick(b){const on=b.classList.contains('on');document.querySelectorAll('#tkRes .chip').forEach(c=>{c.classList.remove('on');c.setAttribute('aria-pressed','false')});if(!on){b.classList.add('on');b.setAttribute('aria-pressed','true')}}
+async function tkDone(id){const c=document.querySelector('#tkRes .chip.on'),n=$('#tkNote').value.trim(),r=[c&&c.textContent,n].filter(Boolean).join(' — ');
+  await api('/tasks',{method:'POST',body:{id,status:'done',result:r}});closeModal();toast('Đã hoàn thành');tasks()}
+async function tkMove(id,days){const t=window._tk.open.find(x=>x.id===id);if(!t)return;let d;
+  if(days)d=iso(new Date(Date.now()+days*864e5));else{d=$('#tkDate').value;if(!d)return evErr('tkDate','Chọn ngày muốn dời tới')}
+  await api('/tasks',{method:'POST',body:{id,title:t.title,type:t.type,due_date:d,assigned_to:t.assigned_to,priority:t.priority}});closeModal();toast('Đã dời hạn tới '+dmy(d));tasks()}
+async function tkCancel(id){await api('/tasks',{method:'POST',body:{id,status:'cancelled'}});closeModal();toast('Đã bỏ việc');tasks()}
 async function addSug(k){const items=(window._sug||[]).filter(x=>!x.exists&&(k==='all'||x.kind===k||x.auto_key===k)).map(x=>({customer_id:x.customer_id,title:x.title,type:x.type,due_date:x.due_date,assigned_to:x.sale==='(Chưa gán)'?'':x.sale,auto_key:x.auto_key,priority:x.priority}));
-  const r=await api('/tasks/bulk',{method:'POST',body:{items}});toast('Đã tạo '+r.created+' việc');loadPage()}
+  if(items.length>20&&!confirm(`Thêm ${items.length} việc vào danh sách?`))return;
+  const r=await api('/tasks/bulk',{method:'POST',body:{items}});toast('Đã thêm '+r.created+' việc');tasks()}
 function newTask(cid,lid){const mb=$('#modalBody');
   mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">Thêm việc</h2><button class="btn" onclick="closeModal()">✕</button></div>
   <div class="grid g2" style="margin-top:12px"><label>Tiêu đề<br><input class="f" id="tTitle" style="width:100%" placeholder="VD: Gọi hỏi nhu cầu tháng này"></label>
@@ -1321,7 +1402,7 @@ async function openCustomer(id){
     <b>Khách sếp</b><span><label style="cursor:pointer"><input type="checkbox" id="cBoss" ${c.is_boss?'checked':''} ${isMgr()?'':'disabled'}> tách riêng khỏi doanh số sale</label> <label style="cursor:pointer;margin-left:10px"><input type="checkbox" id="cNoKpi" ${c.boss_no_kpi?'checked':''} ${isMgr()?'':'disabled'}> K áp KPI</label></span>
     <b>Tạo ngày</b><span>${dmy(c.created_date)} ${c.created_by?'bởi '+esc(c.created_by):''} <button class="btn small" onclick="newTask(${c.id})">+ Giao việc</button></span><b>Công nợ</b><span>${fmt(c.debt)}</span><b>Điểm</b><span>${fmt(c.reward_point)}</span></div>
     <div><h3>Doanh số theo tháng</h3><div class="chart" style="height:180px"><canvas id="cm"></canvas></div></div></div>
-  <div class="grid g2" style="margin-top:12px"><div><h3>Hoá đơn gần đây</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Sale</th><th class="r">Tổng</th><th>TT</th></tr></thead><tbody>${d.invoices.map(i=>`<tr><td>${esc(i.code)}</td><td>${dmy(i.purchase_date)}</td><td>${esc(i.sold_by_name||'')}</td><td class="r">${fmt(i.total)}</td><td><span class="tag ${i.status_value==='Hoàn thành'?'good':i.status_value==='Đã hủy'?'bad':''}">${esc(i.status_value||'')}</span></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Chưa có hoá đơn</td></tr>'}</tbody></table></div></div>
+  <div class="grid" style="margin-top:12px;grid-template-columns:minmax(0,1fr)"><div><h3>Hoá đơn gần đây</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Sale</th><th class="r">Tổng</th><th>TT</th></tr></thead><tbody>${d.invoices.map(i=>`<tr><td>${esc(i.code)}</td><td>${dmy(i.purchase_date)}</td><td>${esc(i.sold_by_name||'')}</td><td class="r">${fmt(i.total)}</td><td><span class="tag ${i.status_value==='Hoàn thành'?'good':i.status_value==='Đã hủy'?'bad':''}">${esc(i.status_value||'')}</span></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Chưa có hoá đơn</td></tr>'}</tbody></table></div></div>
     <div><h3>Hàng hay mua</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>Hàng</th><th class="r">SL</th><th class="r">Doanh số</th><th>Gần nhất</th></tr></thead><tbody>${d.items.map(i=>`<tr><td class="name">${esc(i.product_name)}</td><td class="r">${fmt(i.qty)}</td><td class="r">${fmt(i.rev)}</td><td>${dmy(i.last_d)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">–</td></tr>'}</tbody></table></div></div></div>
   <h3 style="margin-top:12px">Ghi chú CRM</h3>${d.notes.map(n=>`<div class="small" style="padding:6px 0;border-bottom:1px solid var(--border)"><b>${esc(n.author)}</b> <span class="muted">${n.created.replace('T',' ')}</span><br>${esc(n.content)}</div>`).join('')}
   <textarea id="note" placeholder="Thêm ghi chú (gọi điện, hẹn gặp, phản hồi...)" style="margin-top:8px"></textarea><div class="row" style="margin-top:6px"><button class="btn primary" id="bNote">Lưu ghi chú</button></div>`;
