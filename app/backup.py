@@ -11,7 +11,7 @@ from . import db
 
 log = logging.getLogger("backup")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-TABLES = ["crm_users", "sale_aliases", "notes", "kpi_targets", "tasks", "leads", "teams", "campaign_entries",
+TABLES = ["crm_users", "roles", "sale_aliases", "notes", "kpi_targets", "tasks", "leads", "teams", "campaign_entries",
           "events", "event_tasks", "event_customers", "event_budget", "event_activity"]
 SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis",
                 "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl", "debt_term_days", "campaign_gsheet_id", "campaign_export_id"]

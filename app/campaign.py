@@ -18,7 +18,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import db
-from .main_auth import current_user, is_mgr, allowed
+from .main_auth import current_user, is_mgr, is_admin, allowed, team_names
 
 router = APIRouter(prefix="/api")
 
@@ -216,7 +216,7 @@ def compute(user=None, until=None):
 
     out = []
     for g in groups.values():
-        if user is not None and not is_mgr(user) and not any(allowed(user, s) for s in g.get("sales", ())):
+        if user is not None and team_names(user) is not None and not any(allowed(user, s) for s in g.get("sales", ())):
             continue
         rows = []
         for key in ORDER:
@@ -286,7 +286,7 @@ def campaign_detail(grp: str, program: str, until: str = None, user=Depends(curr
     entries = [e for e in db.rows("SELECT * FROM campaign_entries WHERE grp=? ORDER BY id", (grp,))
                if e["program"] in PROGRAMS and row_of(e["program"]) == program]
     cust, lines = _lines(sorted({e["customer_code"] for e in entries if e["customer_code"]}))
-    if not is_mgr(user) and not any(allowed(user, c["sale"]) for c in cust.values()):
+    if team_names(user) is not None and not any(allowed(user, c["sale"]) for c in cust.values()):
         raise HTTPException(403)
     rows = []
     for e in entries:
@@ -337,7 +337,7 @@ async def campaign_entry(request: Request, user=Depends(current_user)):
 
 @router.post("/campaign/import")
 async def campaign_import(request: Request, user=Depends(current_user)):
-    if user.get("role") != "admin":
+    if not is_admin(user):
         raise HTTPException(403)
     b = await request.json()
     entries = b.get("entries") if isinstance(b, dict) else b
@@ -412,7 +412,7 @@ async def campaign_export_run(request: Request, user=Depends(current_user)):
     from . import campaign_export, gsheet
     b = await request.json()
     if b.get("action") == "config":
-        if user.get("role") != "admin":
+        if not is_admin(user):
             raise HTTPException(403)
         db.set_meta("campaign_export_id", str(b.get("sheet") or "").strip())
         return campaign_export_status(user)
@@ -455,7 +455,7 @@ async def campaign_sheet_run(request: Request, user=Depends(current_user)):
     b = await request.json()
     action = b.get("action") or "preview"
     if action == "config":
-        if user.get("role") != "admin":
+        if not is_admin(user):
             raise HTTPException(403)
         db.set_meta("campaign_gsheet_id", str(b.get("sheet") or "").strip())
         return campaign_sheet_status(user)

@@ -162,6 +162,7 @@ td.evwrap{white-space:normal;min-width:150px}
 label.lb.evcheck,label.evcheck{flex-direction:row;align-items:flex-start;gap:8px;cursor:pointer}label.lb.evcheck{margin-top:22px}.evcheck input{margin-top:2px;width:16px;height:16px;flex:none}
 details summary{cursor:pointer;margin-bottom:8px;font-size:12px}.evdeps{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px 10px;margin-bottom:10px}
 .evdeps fieldset{border:0;margin:0;padding:0}.evdeps legend{padding:6px 0 2px}.evdeps label{padding:3px 0}
+.rmx td.rmc,.rmx th.rmc{text-align:center;min-width:120px}.rmx .rmName{width:130px}.rmx .rml{display:inline-flex;gap:6px;align-items:center}.rmx input[type=checkbox]{width:18px;height:18px;cursor:pointer}
 .evfs{border:1px solid var(--border);border-radius:10px;padding:10px 12px 12px;margin:0 0 10px}.evfs legend{font-weight:600;font-size:13px;padding:0 6px}
 @media (max-width:760px){.evboard{grid-template-columns:1fr!important;overflow:visible}.evcol{max-height:none}}
 @media (max-width:480px){.evsteps{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -223,7 +224,7 @@ const ICONS={
 const ic=n=>`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[n]||''}</svg>`;
 async function api(path,opt={}){
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});
-  if(r.status===401){state.user=null;render();throw new Error('401')}
+  if(r.status===401&&path!=='/login'){state.user=null;render();throw new Error('401')}
   if(!r.ok){let m='Lỗi';try{m=(await r.json()).detail||m}catch{}toast(m);throw new Error(m)}
   return r.json();
 }
@@ -241,26 +242,33 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 // ============================================================================
 // Shell
 // ============================================================================
-const isMgr=()=>['admin','accountant'].includes(state.user.role);
-const ROLE={admin:'Quản trị',accountant:'Kế toán',lead:'Trưởng nhóm',sale:'Sale'};
+const isAdmin=()=>state.user.role==='admin';
+const can=p=>isAdmin()||(state.user.perms||[]).includes(p);
+const isMgr=()=>can('manage');
+const canPage=k=>(state.user.pages||[]).includes(k);
 const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['settings','Cài đặt','settings']];
 function render(){
   const root=$('#root');
   if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
     <label>Tên đăng nhập<input id="u" autocomplete="username"></label><label>Mật khẩu<input id="p" type="password" autocomplete="current-password"></label>
     <div class="err" id="lerr"></div><button class="btn primary" style="width:100%" id="lbtn">Đăng nhập</button></div></div>`;
-    const go=async()=>{try{state.user=await api('/login',{method:'POST',body:{username:$('#u').value,password:$('#p').value}});boot()}catch(e){$('#lerr').textContent='Sai tài khoản hoặc mật khẩu'}};
+    const go=async()=>{try{state.user=await api('/login',{method:'POST',body:{username:$('#u').value,password:$('#p').value}});boot()}catch(e){$('#lerr').textContent=e.message&&e.message!=='401'&&e.message!=='Lỗi'?e.message:'Sai tài khoản hoặc mật khẩu'}};
     $('#lbtn').onclick=go;$('#p').onkeydown=e=>{if(e.key==='Enter')go()};$('#u').onkeydown=e=>{if(e.key==='Enter')$('#p').focus()};$('#u').focus();return}
-  const pages=PAGES.filter(p=>p[0]!=='settings'||state.user.role==='admin'),cur=pages.find(p=>p[0]===state.page)||pages[0];
+  const pages=PAGES.filter(p=>canPage(p[0]));
+  if(!pages.length){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div><p>Tài khoản <b>${esc(state.user.display_name)}</b> chưa được cấp quyền xem trang nào. Liên hệ quản trị để được phân quyền.</p><button class="btn" id="logout">Đăng xuất</button></div></div>`;
+    $('#logout').onclick=async()=>{await api('/logout',{method:'POST'});state.user=null;render()};return}
+  if(!canPage(state.page)){state.page=pages[0][0];history.replaceState(null,'','#'+state.page)}
+  const cur=pages.find(p=>p[0]===state.page)||pages[0];
   root.innerHTML=`<div class="app"><header class="appbar"><button class="btn navbtn" id="navBtn" aria-label="Mở menu" aria-expanded="false" aria-controls="nav">${ic('menu')}</button>
     <div class="logo"><span class="mark">C</span>CRM KiotViet</div><span class="appbar-page">${ic(cur[2])}${cur[1]}</span></header>
     <div class="navscrim" id="navScrim" hidden></div>
     <nav id="nav" aria-label="Menu chính"><div class="navhead"><div class="logo"><span class="mark">C</span>CRM KiotViet</div><button class="btn navbtn" id="navClose" aria-label="Đóng menu">${ic('x')}</button></div>
     ${pages.map(p=>`<a class="item ${state.page===p[0]?'active':''}" href="#${p[0]}" ${state.page===p[0]?'aria-current="page"':''}>${ic(p[2])}${p[1]}</a>`).join('')}
     <div class="spacer"></div><div class="sync" id="syncbar"></div>
-    <div class="user">${esc(state.user.display_name)} · ${ROLE[state.user.role]||state.user.role}<br><a href="#" id="logout">Đăng xuất</a></div></nav>
+    <div class="user">${esc(state.user.display_name)} · ${esc(state.user.role_name||state.user.role)}<br>${state.user.env?'':'<a href="#" id="chpw">Đổi mật khẩu</a> · '}<a href="#" id="logout">Đăng xuất</a></div></nav>
     <main id="main"></main></div>`;
   $('#logout').onclick=async e=>{e.preventDefault();await api('/logout',{method:'POST'});state.user=null;render()};
+  const cp=$('#chpw');if(cp)cp.onclick=e=>{e.preventDefault();navSet(false,false);pwForm()};
   $('#navBtn').onclick=()=>navSet(true);$('#navClose').onclick=()=>navSet(false);$('#navScrim').onclick=()=>navSet(false);
   document.querySelectorAll('#nav a.item').forEach(a=>a.addEventListener('click',()=>navSet(false,false)));navSet(false,false);
   loadPage();refreshSync();
@@ -273,10 +281,10 @@ function navSet(open,focus=true){const n=$('#nav'),b=$('#navBtn');if(!n)return;c
 let navWasMob=navMob.matches;const navMode=()=>{if(navMob.matches!==navWasMob){navWasMob=navMob.matches;navSet(false,false)}};
 navMob.addEventListener('change',navMode);addEventListener('resize',navMode);
 function topbar(title,{dates=true,sale=true,extra='',exportKey=null}={}){
-  const saleSel=sale&&state.user.role!=='sale'?`<select id="fSale"><option value="">Tất cả sale</option>${state.sales.map(s=>`<option ${s===state.sale?'selected':''}>${esc(s)}</option>`).join('')}</select>`:'';
+  const saleSel=sale&&state.user.scope!=='own'?`<select id="fSale"><option value="">Tất cả sale</option>${state.sales.map(s=>`<option ${s===state.sale?'selected':''}>${esc(s)}</option>`).join('')}</select>`:'';
   const dateIn=dates?`<div class="chips" id="quick">${['Tháng này','Tháng trước','7 ngày','30 ngày','Quý này','Năm nay'].map(q=>`<span class="chip">${q}</span>`).join('')}</div>
     <input type="date" id="fFrom" value="${state.from}"> <span class="muted">→</span> <input type="date" id="fTo" value="${state.to}">`:'';
-  return `<div class="topbar"><h1>${title}</h1><div class="filters">${dateIn}${saleSel}${extra}${exportKey?`<button class="btn" id="btnExport">⬇ Excel</button>`:''}</div></div>`;
+  return `<div class="topbar"><h1>${title}</h1><div class="filters">${dateIn}${saleSel}${extra}${exportKey&&can('export')?`<button class="btn" id="btnExport">⬇ Excel</button>`:''}</div></div>`;
 }
 function bindTopbar(exportKey){
   const re=()=>{const f=$('#fFrom'),t=$('#fTo');if(f)state.from=f.value;if(t)state.to=t.value;const s=$('#fSale');if(s)state.sale=s.value;loadPage()};
@@ -317,7 +325,7 @@ async function overview(){
       ${d.birthdays.length?`<div class="tablewrap" style="max-height:300px"><table><tr><th>Ngày</th><th>Khách</th><th>SĐT</th><th>Sale</th></tr>${d.birthdays.map(b=>`<tr><td>${b.birthday_ddmm} ${b.days_until===0?'<span class="tag good">hôm nay</span>':b.days_until===1?'<span class="tag warn">mai</span>':''}</td><td class="name"><a href="#" onclick="openCustomer(${b.id});return false">${esc(b.name)}</a></td><td>${esc((b.contact_number||'').slice(0,12))}</td><td>${esc(b.sale)}</td></tr>`).join('')}</table></div>`:'<div class="empty">Không có sinh nhật trong 7 ngày tới</div>'}</div>
   </div><div class="card" style="margin-top:14px"><h3>Top 12 sale theo doanh số <span class="x"><a href="#sales">chi tiết</a></span></h3><div class="chart tall"><canvas id="cSale"></canvas></div></div>`;
   bindTopbar();
-  api('/alerts').then(al=>{const el=$('#alerts');if(!el||state.page!=='overview')return;
+  api('/alerts').then(al=>{const el=$('#alerts');if(!el||state.page!=='overview')return;al=al.filter(a=>canPage(String(a.href||'').slice(1)));
     el.innerHTML=`<div class="card" style="margin-top:14px"><h3>Cần xử lý hôm nay <span class="x">tính đến thời điểm đồng bộ gần nhất</span></h3>${al.length?al.map(a=>`<a href="${a.href}" class="task" style="text-decoration:none;color:inherit;align-items:center"><span class="tag ${a.level}" style="min-width:44px;text-align:center;font-size:13px">${fmt(a.n)}</span><div class="t"><b>${esc(a.title)}${a.amount?` · ${fmtK(a.amount)}`:''}</b><span class="small muted">${esc(a.note||'')}</span></div><span class="muted">›</span></a>`).join(''):'<div class="empty">Không có gì cần xử lý gấp.</div>'}</div>`}).catch(()=>{});
   chart('cDaily',{type:'bar',data:{labels:s.daily.map(x=>x.d.slice(8)+'/'+x.d.slice(5,7)),datasets:[{data:s.daily.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},
     options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+s.daily[c.dataIndex].n+' HĐ'}}}})});
@@ -396,7 +404,7 @@ const evOff=o=>o===0?'Ngày D':(o<0?`D${o}`:`D+${o}`);
 const evPhone=p=>String(p||'').replace(/\D/g,'').replace(/^84(?=\d{9,})/,'0');
 const evFill=(t,c)=>{const e=(state.ev||{}).event||{};return t.replace(/\{ten\}/g,c&&c.name||'chị').replace(/\{sale\}/g,c&&c.sale||state.user.display_name||'[tên sale]').replace(/\{su_kien\}/g,e.name||'sự kiện').replace(/\{hashtag\}/g,e.hashtag||'#[hashtag]')};
 const evDue=t=>{const e=state.ev.event;return e.date?evAdd(e.date,t.off):null};
-const evCanEdit=()=>isMgr()||state.user.role==='lead';
+const evCanEdit=()=>can('event_edit');
 const evT=id=>state.ev.tasks.find(t=>t.id===id);
 const evShort=(s,n=60)=>{s=String(s||'');return s.length>n?s.slice(0,n-1)+'…':s};
 const evDeptTag=d=>`<span class="tag d-${d}">${esc(state.ev.depts[d]||d)}</span>`;
@@ -469,7 +477,7 @@ function evOverview(){
    ${evCanEdit()?`<label class="sr" for="evLessons">Bài học rút kinh nghiệm</label><textarea class="f" id="evLessons" placeholder="Việc gì làm tốt, việc gì trễ và vì sao, lần sau đổi gì…">${esc(e.lessons||'')}</textarea><div class="row" style="margin-top:6px"><button class="btn" onclick="evRun(this,evSaveLessons)">Lưu bài học</button></div>`:`<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${esc(e.lessons||'Chưa có bài học nào.')}</pre>`}</div>`;
   $('#evCmt').onkeydown=x=>{if(x.key==='Enter'&&!x.isComposing){x.preventDefault();evComment(0,'evCmt')}}}
 const evNbLine=t=>{const D=state.ev.depts;return `<a href="#" class="task evlink" onclick="evTaskForm(${t.id});return false"><span>${evDeptTag(t.dept)}</span><div class="t"><b>${esc(t.text)}</b><span class="small muted">${t.owner?ic('user')+' '+esc(t.owner):'<span style="color:var(--warn-ink)">chưa giao người</span>'} · ${evLate(t)?`<strong style="color:var(--bad)">trễ ${evDays(evDue(t))} ngày</strong>`:(evDue(t)?'hạn '+dmy(evDue(t)):evOff(t.off))}${t.blocks.length?` · đang giữ ${t.blocks.length} việc của ${[...new Set(t.blocks.map(i=>D[(evT(i)||{}).dept]))].join(', ')}`:''}</span></div>${ic('chevron')}</a>`};
-const evActLine=(a,ctx)=>{const t=a.task_id&&evT(a.task_id),mine=a.kind==='comment'&&(a.username===state.user.username||state.user.role==='admin');
+const evActLine=(a,ctx)=>{const t=a.task_id&&evT(a.task_id),mine=a.kind==='comment'&&(a.username===state.user.username||isAdmin());
   return `<div class="task evact evact-${a.kind}">${ic(EV_ACT[a.kind]||'arrow')}<div class="t"><span>${esc(a.content)}</span><span class="small muted">${esc(a.author||'')} · ${dmy(a.created)} ${String(a.created||'').slice(11,16)}${t&&a.kind==='comment'&&t.id!==ctx?` · trong việc <a href="#" onclick="evTaskForm(${t.id});return false">${esc(evShort(t.text,50))}</a>`:''}</span></div>${mine?`<button class="btn small icon" aria-label="Xoá trao đổi này" title="Xoá trao đổi" onclick="evCmtDel(${a.id},${ctx||0})">${ic('x')}</button>`:''}</div>`};
 async function evComment(task_id,inp){const el=$('#'+inp),v=el.value.trim();if(!v)return evErr(inp,'Nhập nội dung trước khi gửi');
   await api(`/events/${state.evId}/comment`,{method:'POST',body:{task_id:task_id||null,content:v}});el.value='';await evLoad(state.evId);if(task_id)evTaskForm(task_id);else evDraw()}
@@ -507,7 +515,7 @@ async function evTaskSet(id,status,force){const t=evT(id);
   evReload()}
 async function evPhase(p,force){await api('/events',{method:'POST',body:force?{id:state.evId,phase:p,force:true}:{id:state.evId,phase:p}});state.evPhase=p;toast('Sự kiện chuyển sang bước: '+EV_PH[p][0]);evReload()}
 function evAdvance(){const e=state.ev.event,cur=e.phase||0,open=state.ev.tasks.filter(t=>t.phase===cur&&t.status!=='done'),gates=open.filter(t=>t.gate);
-  if(gates.length)return evModal(`<h2 style="margin:0 0 8px">Chưa qua cổng duyệt</h2><p>Muốn sang “${EV_PH[cur+1][0]}”, các việc duyệt sau phải xong trước:</p><ul>${gates.map(t=>`<li>${evDeptTag(t.dept)} ${esc(t.text)}${t.owner?' — '+esc(t.owner):''}</li>`).join('')}</ul><div class="row"><button class="btn primary" onclick="closeModal()">Đã hiểu</button>${state.user.role==='admin'?`<button class="btn" onclick="closeModal();evPhase(${cur+1},1)">Vẫn chuyển (quản trị)</button>`:''}</div>`);
+  if(gates.length)return evModal(`<h2 style="margin:0 0 8px">Chưa qua cổng duyệt</h2><p>Muốn sang “${EV_PH[cur+1][0]}”, các việc duyệt sau phải xong trước:</p><ul>${gates.map(t=>`<li>${evDeptTag(t.dept)} ${esc(t.text)}${t.owner?' — '+esc(t.owner):''}</li>`).join('')}</ul><div class="row"><button class="btn primary" onclick="closeModal()">Đã hiểu</button>${isAdmin()?`<button class="btn" onclick="closeModal();evPhase(${cur+1},1)">Vẫn chuyển (quản trị)</button>`:''}</div>`);
   if(!open.length)return evPhase(cur+1);
   evModal(`<h2 style="margin:0 0 8px">Chuyển sang “${EV_PH[cur+1][0]}”?</h2><p>Bước <b>${EV_PH[cur][0]}</b> còn <b>${open.length}</b> việc chưa xong:</p><ul>${open.map(t=>`<li>${evDeptTag(t.dept)} ${esc(t.text)}${t.owner?' — '+esc(t.owner):''}</li>`).join('')}</ul><div class="row"><button class="btn primary" onclick="closeModal()">Ở lại làm tiếp</button><button class="btn" onclick="closeModal();evPhase(${cur+1})">Vẫn chuyển bước</button></div>`)}
 function evTaskForm(id,phase){
@@ -670,7 +678,7 @@ async function evSave(edit){if(!$('#feName').value.trim())return evErr('feName',
   const b={name:$('#feName').value,date:$('#feDate').value,place:$('#fePlace').value,hashtag:$('#feTag').value,goal:$('#feGoal').value,targets};if(edit)b.id=state.evId;else if($('#feSrc')&&$('#feSrc').value)b.clone_from=+$('#feSrc').value;
   const r=await api('/events',{method:'POST',body:b});closeModal();toast('Đã lưu');state.evId=r.id;state.evPhase=null;if(!edit)state.evTab='tong-quan';events()}
 function evModal(html){const mb=$('#modalBody');state._opener=document.activeElement;mb.style.width='min(720px,100%)';mb.innerHTML=html;mb.setAttribute('aria-labelledby',mb.querySelector('h2')?(mb.querySelector('h2').id||(mb.querySelector('h2').id='mTitle')):'');$('#modal').classList.add('open');
-  const f=mb.querySelector('input:not([type=checkbox]),textarea,select')||mb.querySelector('button.primary,button');if(f)f.focus()}
+  const f=mb.querySelector('input:not([type=checkbox]):not([readonly]),textarea,select')||mb.querySelector('button.primary,button');if(f)f.focus()}
 function evDnD(kind){let dragId=null;
   document.querySelectorAll('.evboard .evcard').forEach(c=>{c.addEventListener('dragstart',x=>{dragId=+c.dataset.id;c.classList.add('dragging');x.dataTransfer.effectAllowed='move';try{x.dataTransfer.setData('text/plain',c.dataset.id)}catch(_){}});c.addEventListener('dragend',()=>c.classList.remove('dragging'))});
   document.querySelectorAll(`.evcol[data-drop="${kind}"]`).forEach(col=>{col.addEventListener('dragover',x=>{x.preventDefault();col.classList.add('over')});col.addEventListener('dragleave',x=>{if(!col.contains(x.relatedTarget))col.classList.remove('over')});
@@ -721,7 +729,7 @@ async function products(){
 }
 
 async function debts(){
-  const d=await api('/debts?sale='+encodeURIComponent(state.user.role==='sale'?'':state.sale));const m=$('#main');const B=d.buckets;window._debts=d.rows;
+  const d=await api('/debts?sale='+encodeURIComponent(state.user.scope==='own'?'':state.sale));const m=$('#main');const B=d.buckets;window._debts=d.rows;
   const BK=[['b0','0–30 ngày','--s3'],['b1','31–60 ngày','--s4'],['b2','61–90 ngày','--s2'],['b3','Trên 90 ngày','--s8']];
   const share=v=>d.total?Math.round(v/d.total*100)+'%':'–';const z=v=>v?fmt(v):'<span class="muted">–</span>';
   m.innerHTML=topbar('Công nợ & tuổi nợ',{dates:false,exportKey:'debts',extra:`<input class="f" id="fQ" placeholder="Tìm tên / mã / SĐT"><select class="f" id="fKind"><option value="">Tất cả khách nợ (${d.rows.length})</option><option value="over">Có nợ quá hạn (${d.overdue_customers})</option><option value="risk">Nợ quá hạn, đã ngừng mua (${d.risk_customers})</option><option value="b3">Có nợ trên 90 ngày</option></select>${isMgr()?`<select class="f" id="fTerm" title="Cho nợ bao nhiêu ngày thì tính là quá hạn">${[30,60,90].map(x=>`<option value="${x}" ${x===d.term?'selected':''}>Hạn nợ ${x} ngày</option>`).join('')}</select>`:''}`})+
@@ -755,7 +763,7 @@ async function campaign(){
   const d=await api('/campaign'+uq);const m=$('#main');const T=d.totals;window._camp=d;const mgr=isMgr();
   const owners=[...new Set(d.groups.map(g=>g.owner).filter(Boolean))].sort();
   const val=r=>r.unit==='amount'?fmt(r.value)+' đ':fmt(r.value)+' '+r.unit_label;
-  m.innerHTML=topbar('Thưởng chiến dịch',{dates:false,sale:false,extra:`<label class="small" style="display:flex;align-items:center;gap:5px" title="Chỉ tính hoá đơn đến thời điểm này. Dùng để đối chiếu với sheet ở một lần chốt. Để trống = tính đến hiện tại.">Tính đến <input class="f" type="datetime-local" id="fUntil" value="${esc(state.campUntil||'')}"></label><input class="f" id="fQ" placeholder="Tìm khách / mã KH"><select class="f" id="fP"><option value="">Tất cả chương trình</option>${d.programs.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select><select class="f" id="fO"><option value="">Tất cả người phụ trách</option>${owners.map(o=>`<option>${esc(o)}</option>`).join('')}</select><select class="f" id="fS"><option value="">Mọi trạng thái</option><option value="won">Đã đạt thưởng</option><option value="near">Sắp đạt mốc (từ 80%)</option><option value="idle">Chưa bắt đầu</option><option value="diff">Lệch so với sheet</option></select>${mgr?'<button class="btn primary" id="bNewC">+ Thêm khách</button>':''}${state.user.role==='admin'?'<label class="btn" title="Nạp danh sách khách và chương trình từ file JSON. Dòng đã có thì bỏ qua.">⬆ Nhập từ file<input type="file" id="fImp" accept=".json,application/json" style="display:none"></label><label class="small" style="display:flex;align-items:center;gap:4px" title="Xoá toàn bộ danh sách hiện có rồi nạp lại từ file"><input type="checkbox" id="fImpR"> thay toàn bộ</label>':''}${mgr?'<label class="small" style="display:flex;align-items:center;gap:5px" title="Dựng lại toàn bộ file xuất lần trước"><input type="checkbox" id="gRepC" checked> ghi đè</label><button class="btn" id="bGsC" title="Xuất ra file Google Sheet riêng, bố cục giống file của kế toán: BẢNG TỔNG và mỗi khách một tab. Theo đúng ô Tính đến">⬇ Google Sheet</button><button class="btn" id="bPour" title="Nối các hoá đơn mới vào đúng tab và khối của từng khách trong file thưởng chiến dịch của kế toán">⇪ Đổ vào file kế toán</button>':''}`})+
+  m.innerHTML=topbar('Thưởng chiến dịch',{dates:false,sale:false,extra:`<label class="small" style="display:flex;align-items:center;gap:5px" title="Chỉ tính hoá đơn đến thời điểm này. Dùng để đối chiếu với sheet ở một lần chốt. Để trống = tính đến hiện tại.">Tính đến <input class="f" type="datetime-local" id="fUntil" value="${esc(state.campUntil||'')}"></label><input class="f" id="fQ" placeholder="Tìm khách / mã KH"><select class="f" id="fP"><option value="">Tất cả chương trình</option>${d.programs.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select><select class="f" id="fO"><option value="">Tất cả người phụ trách</option>${owners.map(o=>`<option>${esc(o)}</option>`).join('')}</select><select class="f" id="fS"><option value="">Mọi trạng thái</option><option value="won">Đã đạt thưởng</option><option value="near">Sắp đạt mốc (từ 80%)</option><option value="idle">Chưa bắt đầu</option><option value="diff">Lệch so với sheet</option></select>${mgr?'<button class="btn primary" id="bNewC">+ Thêm khách</button>':''}${isAdmin()?'<label class="btn" title="Nạp danh sách khách và chương trình từ file JSON. Dòng đã có thì bỏ qua.">⬆ Nhập từ file<input type="file" id="fImp" accept=".json,application/json" style="display:none"></label><label class="small" style="display:flex;align-items:center;gap:4px" title="Xoá toàn bộ danh sách hiện có rồi nạp lại từ file"><input type="checkbox" id="fImpR"> thay toàn bộ</label>':''}${mgr?'<label class="small" style="display:flex;align-items:center;gap:5px" title="Dựng lại toàn bộ file xuất lần trước"><input type="checkbox" id="gRepC" checked> ghi đè</label><button class="btn" id="bGsC" title="Xuất ra file Google Sheet riêng, bố cục giống file của kế toán: BẢNG TỔNG và mỗi khách một tab. Theo đúng ô Tính đến">⬇ Google Sheet</button><button class="btn" id="bPour" title="Nối các hoá đơn mới vào đúng tab và khối của từng khách trong file thưởng chiến dịch của kế toán">⇪ Đổ vào file kế toán</button>':''}`})+
   `<div class="grid g4"><div class="card tile"><h3>Tổng vé Hàn Quốc</h3><div class="v">${fmt(T.tickets)}</div><div class="d">cộng lẻ ${String(T.tickets_exact).replace('.',',')} vé · làm tròn từng dòng như ô tổng của sheet</div></div>
    <div class="card tile"><h3>Tổng thưởng đô</h3><div class="v">${fmt(T.usd)}$</div><div class="d">Nghệ, Eundan, Enzym</div></div>
    <div class="card tile"><h3>Khách / team tham gia</h3><div class="v">${fmt(T.groups)}</div><div class="d">${fmt(d.groups.reduce((a,g)=>a+g.rows.length,0))} dòng chương trình</div></div>
@@ -787,7 +795,7 @@ async function campaign(){
     const r=await api('/campaign/import',{method:'POST',body:{entries:Array.isArray(data)?data:data.entries,replace:$('#fImpR').checked}});toast('Đã nạp '+r.added+' dòng, bỏ qua '+r.skipped);loadPage()};
 }
 async function exportCamp(){
-  const st=await api('/campaign/export');const admin=state.user.role==='admin';const mb=$('#modalBody');
+  const st=await api('/campaign/export');const admin=isAdmin();const mb=$('#modalBody');
   const head=`<div class="row"><h2 style="margin:0;flex:1">Xuất thưởng chiến dịch ra Google Sheet</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>`;
   const cfg=admin?`<div class="row" style="margin-top:10px"><input class="f" id="xSheet" style="flex:1;min-width:320px" placeholder="Dán đường link file Google Sheet dùng riêng cho bản xuất này" value="${esc(st.url)}"><button class="btn" id="xSave">Lưu file</button></div><p class="small muted">Dùng một file riêng, không trùng file bảng doanh số hay file đổ dữ liệu của kế toán. Mỗi lần xuất, file được dựng lại toàn bộ. File phải chia sẻ quyền Người chỉnh sửa cho <b>${esc(st.account||'tài khoản dịch vụ của CRM')}</b>.</p>`:'';
   const go=async()=>{mb.innerHTML=head+'<div class="empty">Đang dựng file: BẢNG TỔNG và mỗi khách một tab… (khoảng 30 giây)</div>';
@@ -800,7 +808,7 @@ async function exportCamp(){
   if(!st.sheet_id){mb.innerHTML=head+'<p>Chưa khai báo file Google Sheet để xuất.</p>'+cfg;const sv=$('#xSave');if(sv)sv.onclick=save;return}
   go()}
 async function pourSheet(write){
-  const mb=$('#modalBody');const st=await api('/campaign/sheet');const admin=state.user.role==='admin';
+  const mb=$('#modalBody');const st=await api('/campaign/sheet');const admin=isAdmin();
   const head=`<div class="row"><h2 style="margin:0;flex:1">Đổ vào file thưởng chiến dịch</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>`;
   const cfg=admin?`<div class="row" style="margin-top:10px"><input class="f" id="pSheet" style="flex:1;min-width:320px" placeholder="Dán đường link file Google Sheet thưởng chiến dịch" value="${esc(st.url)}"><button class="btn" id="pSave">Lưu file</button></div><p class="small muted">File phải được chia sẻ quyền Người chỉnh sửa cho <b>${esc(st.account||'tài khoản dịch vụ của CRM')}</b>.</p>`:'';
   if(!st.sheet_id){mb.innerHTML=head+`<p>Chưa khai báo file Google Sheet để đổ dữ liệu vào.</p>`+cfg;$('#modal').classList.add('open')}
@@ -879,19 +887,80 @@ async function birthdays(){
   bindTopbar('birthdays');$('#fDays').onchange=e=>{state.bdays=+e.target.value;loadPage()};sortable('#t');
 }
 
+// ============================================================================
+// Tài khoản & phân quyền (Cài đặt, chỉ Quản trị) + tự đổi mật khẩu
+// ============================================================================
+const pwGen=()=>{const c='abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789',a=new Uint32Array(10);crypto.getRandomValues(a);return [...a].map(x=>c[x%c.length]).join('')};
+async function accountsDraw(){const el=$('#acct');if(!el)return;const d=await api('/users');state.acct=d;
+  const q=evNoAcc(state.acctQ||''),rf=state.acctRole||'',RN=Object.fromEntries(d.roles.map(r=>[r.code,r.name]));
+  const L=d.users.filter(u=>(!rf||u.role===rf)&&(!q||evNoAcc(u.username+' '+(u.display_name||'')+' '+(u.sale_name||'')).includes(q)));
+  el.innerHTML=`<div class="card" style="margin-bottom:14px"><h3>Tài khoản <span class="x">${d.users.length} tài khoản · đổi nhóm quyền hoặc khoá có hiệu lực ngay</span></h3>
+  <div class="row" style="margin-bottom:10px"><input class="f" id="uQ" type="search" aria-label="Tìm tài khoản" placeholder="Tìm tên, tài khoản, sale" value="${esc(state.acctQ||'')}" style="width:220px">
+   <select class="f" id="uRole" aria-label="Lọc theo nhóm quyền"><option value="">Tất cả nhóm</option>${d.roles.map(r=>`<option value="${r.code}" ${rf===r.code?'selected':''}>${esc(r.name)} (${r.users})</option>`).join('')}</select>
+   <span style="flex:1"></span><button class="btn primary" onclick="userForm()">＋ Tạo tài khoản</button></div>
+  <div class="tablewrap"><table><thead><tr><th>Tài khoản</th><th>Tên hiển thị</th><th>Nhóm quyền</th><th>Phòng ban</th><th>Sale</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th><th></th></tr></thead><tbody>
+   <tr><td><b>${esc(d.admin_user)}</b></td><td>Quản trị gốc</td><td>Quản trị</td><td>—</td><td>—</td><td><span class="tag info">trong .env</span></td><td class="small muted">—</td><td class="small muted">đổi mật khẩu ở Render</td></tr>
+   ${L.map(u=>`<tr><td><b>${esc(u.username)}</b>${u.username===d.me?' <span class="tag info">bạn</span>':''}</td><td>${esc(u.display_name||'')}</td><td>${esc(RN[u.role]||u.role)}</td><td>${esc(d.depts[u.dept]||'—')}</td><td>${esc(u.sale_name||'—')}</td><td>${u.active?'<span class="tag good">Đang dùng</span>':'<span class="tag bad">Đã khoá</span>'}</td><td class="small muted">${u.last_login?dmy(u.last_login)+' '+u.last_login.slice(11,16):'chưa đăng nhập'}</td><td><button class="btn small" onclick="userForm('${esc(u.username)}')">Sửa</button></td></tr>`).join('')||'<tr><td colspan="8" class="empty">Không có tài khoản phù hợp</td></tr>'}
+  </tbody></table></div></div>
+  <div class="card" style="margin-bottom:14px"><h3>Phân quyền theo nhóm <span class="x">tích trang mỗi nhóm được xem · Cài đặt luôn chỉ dành cho Quản trị</span></h3>${rolesMatrix(d)}</div>`;
+  let tm;$('#uQ').oninput=x=>{clearTimeout(tm);tm=setTimeout(()=>{state.acctQ=x.target.value;accountsDraw().then(()=>{const i=$('#uQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
+  $('#uRole').onchange=x=>{state.acctRole=x.target.value;accountsDraw()}}
+function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>p[0]!=='settings'),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
+  const cb=(r,t,k,on,lbl)=>`<td class="rmc"><input type="checkbox" class="rm" data-c="${r.code}" data-t="${t}" data-k="${k}" ${on?'checked':''} ${r.code==='admin'?'disabled':''} aria-label="${esc(r.name)}: ${esc(lbl)}"></td>`;
+  const head=`<tr><th>Trang / quyền</th>${R.map(r=>`<th class="rmc">${r.code==='admin'?esc(r.name):`<input class="f rmName" data-c="${r.code}" value="${esc(r.name)}" aria-label="Tên nhóm quyền">`}<div class="small muted" style="font-weight:400">${r.users} tài khoản${r.builtin?'':` · <a href="#" onclick="roleDel('${r.code}');return false">xoá nhóm</a>`}</div></th>`).join('')}</tr>`;
+  const pages=P.map(([k,l,i])=>`<tr><td><span class="rml">${ic(i)} ${l}</span></td>${R.map(r=>cb(r,'p',k,r.code==='admin'||r.pages.includes(k),l)).join('')}</tr>`).join('');
+  const scope=`<tr><td><b>Phạm vi dữ liệu theo sale</b><div class="small muted">khách, doanh số, công nợ, việc…</div></td>${R.map(r=>`<td class="rmc"><select class="f rmScope" data-c="${r.code}" ${r.code==='admin'?'disabled':''} aria-label="Phạm vi dữ liệu của ${esc(r.name)}">${Object.entries(d.scopes).map(([k,l])=>`<option value="${k}" ${r.scope===k?'selected':''}>${l}</option>`).join('')}</select></td>`).join('')}</tr>`;
+  const perms=Object.entries(d.perms).map(([k,l])=>`<tr><td>${esc(l)}</td>${R.map(r=>cb(r,'q',k,r.code==='admin'||r.perms.includes(k),l)).join('')}</tr>`).join('');
+  return `<div class="tablewrap" style="max-height:none"><table class="rmx"><thead>${head}</thead><tbody><tr><td colspan="${R.length+1}" class="evphrow">Trang được xem</td></tr>${pages}<tr><td colspan="${R.length+1}" class="evphrow">Dữ liệu và thao tác</td></tr>${scope}${perms}</tbody></table></div>
+  <div class="row" style="margin-top:10px"><button class="btn primary" onclick="evRun(this,rolesSave)">Lưu phân quyền</button><button class="btn" onclick="roleNew()">＋ Thêm nhóm quyền</button><span class="small muted">Người đang dùng thấy thay đổi ở lần bấm tiếp theo, không cần đăng nhập lại.</span></div>`}
+async function rolesSave(){const R=state.acct.roles.filter(r=>r.code!=='admin').map(r=>({code:r.code,name:($(`.rmName[data-c="${r.code}"]`)||{}).value||r.name,scope:$(`.rmScope[data-c="${r.code}"]`).value,
+  pages:[...document.querySelectorAll(`.rm[data-c="${r.code}"][data-t="p"]:checked`)].map(x=>x.dataset.k),perms:[...document.querySelectorAll(`.rm[data-c="${r.code}"][data-t="q"]:checked`)].map(x=>x.dataset.k)}));
+  await api('/roles',{method:'POST',body:{roles:R}});toast('Đã lưu phân quyền');accountsDraw()}
+function roleNew(){evModal(`<div class="row"><h2 style="flex:1;margin:0" id="mTitle">Thêm nhóm quyền</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <label class="lb">Tên nhóm <span class="req" aria-hidden="true">*</span><input class="f" id="rnName" placeholder="Chăm sóc khách hàng"></label>
+  <label class="lb">Sao chép quyền từ nhóm<select class="f" id="rnFrom"><option value="">— không sao chép —</option>${state.acct.roles.filter(r=>r.code!=='admin').map(r=>`<option value="${r.code}">${esc(r.name)}</option>`).join('')}</select><span class="muted">Tạo xong, chỉnh lại các ô tích rồi bấm “Lưu phân quyền”.</span></label>
+  <div class="row"><button class="btn primary" onclick="evRun(this,roleCreate)">Tạo nhóm</button></div>`)}
+async function roleCreate(){const n=$('#rnName').value.trim();if(!n)return evErr('rnName','Nhập tên nhóm');const s=state.acct.roles.find(r=>r.code===$('#rnFrom').value)||{pages:[],perms:[],scope:'own'};
+  await api('/roles',{method:'POST',body:{name:n,pages:s.pages,perms:s.perms,scope:s.scope}});closeModal();toast('Đã tạo nhóm “'+n+'”');accountsDraw()}
+async function roleDel(code){if(!confirm('Xoá nhóm quyền này?'))return;await api('/roles',{method:'POST',body:{delete:code}});toast('Đã xoá nhóm');accountsDraw()}
+function userForm(name){const d=state.acct,u=name?d.users.find(x=>x.username===name):{username:'',display_name:'',role:'sale',dept:'SALE',sale_name:'',active:1};if(!u)return;
+  const role=c=>d.roles.find(x=>x.code===c)||{};
+  evModal(`<div class="row"><h2 style="flex:1;margin:0" id="mTitle">${name?'Sửa tài khoản':'Tạo tài khoản'}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <div class="evgrid"><label class="lb">Tên đăng nhập <span class="req" aria-hidden="true">*</span><input class="f" id="fuUser" value="${esc(u.username)}" ${name?'readonly':''} autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ngat.sale"><span class="muted">${name?'Không đổi được tên đăng nhập':'Chữ không dấu, số, dấu chấm, gạch'}</span></label>
+   <label class="lb">Tên hiển thị<input class="f" id="fuName" value="${esc(u.display_name||'')}" placeholder="Nguyễn Thị Ngát"></label>
+   <label class="lb">Nhóm quyền<select class="f" id="fuRole">${d.roles.map(r=>`<option value="${r.code}" ${u.role===r.code?'selected':''}>${esc(r.name)}</option>`).join('')}</select><span class="muted" id="fuRoleHint"></span></label>
+   <label class="lb">Phòng ban<select class="f" id="fuDept"><option value="">—</option>${Object.entries(d.depts).map(([k,v])=>`<option value="${k}" ${u.dept===k?'selected':''}>${esc(v)}</option>`).join('')}</select></label>
+   <label class="lb">Tên sale trên KiotViet<select class="f" id="fuSale"><option value="">— không —</option>${[...new Set((state.sales||[]).concat(u.sale_name?[u.sale_name]:[]))].map(s=>`<option ${s===u.sale_name?'selected':''}>${esc(s)}</option>`).join('')}</select><span class="muted">Bắt buộc với nhóm xem dữ liệu “team” hoặc “chỉ của mình”</span></label>
+   <label class="lb">Trạng thái<select class="f" id="fuActive"><option value="1" ${u.active?'selected':''}>Đang dùng</option><option value="0" ${u.active?'':'selected'}>Khoá (không đăng nhập được)</option></select></label></div>
+  <label class="lb">${name?'Đặt lại mật khẩu':'Mật khẩu <span class="req" aria-hidden="true">*</span>'}<span class="row" style="gap:6px;flex-wrap:nowrap"><input class="f" id="fuPw" type="text" autocomplete="new-password" spellcheck="false" style="flex:1;min-width:0" placeholder="${name?'Để trống nếu không đổi':'Tối thiểu 6 ký tự'}"><button type="button" class="btn" onclick="$('#fuPw').value=pwGen()">Tạo ngẫu nhiên</button></span><span class="muted">${name?'Đặt lại sẽ đăng xuất người này khỏi mọi thiết bị.':'Gửi mật khẩu này cho người dùng; họ tự đổi sau khi đăng nhập.'}</span></label>
+  <div class="row"><button class="btn primary" onclick="evRun(this,()=>userSave(${name?1:0}))">${name?'Lưu':'Tạo tài khoản'}</button>${name&&name!==d.me?`<button class="btn danger" onclick="$('#evDelU').hidden=false">Xoá tài khoản</button>`:''}</div>
+  ${name?`<div id="evDelU" class="evconfirm" hidden>Xoá hẳn tài khoản ${esc(name)}? Nếu chỉ tạm ngưng, chọn “Khoá” rồi Lưu. <button class="btn small" onclick="$('#evDelU').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>userDel('${esc(name)}'))">Xoá</button></div>`:''}`);
+  const hint=()=>{const r=role($('#fuRole').value);$('#fuRoleHint').textContent=r.code==='admin'?'Toàn quyền, kể cả Cài đặt':`${(r.pages||[]).length} trang · dữ liệu: ${(d.scopes[r.scope]||'').toLowerCase()}`};
+  hint();$('#fuRole').onchange=()=>{hint();const dp=d.role_dept[$('#fuRole').value];if(dp&&!name)$('#fuDept').value=dp}}
+async function userSave(edit){const r=state.acct.roles.find(x=>x.code===$('#fuRole').value)||{};
+  const b={username:$('#fuUser').value.trim(),display_name:$('#fuName').value,role:$('#fuRole').value,dept:$('#fuDept').value,sale_name:$('#fuSale').value,active:$('#fuActive').value==='1',password:$('#fuPw').value};
+  if(!edit){b.create=true;if(!/^[A-Za-z0-9._-]{2,40}$/.test(b.username))return evErr('fuUser','Tên đăng nhập 2–40 ký tự: chữ không dấu, số, dấu chấm, gạch');if(b.password.length<6)return evErr('fuPw','Mật khẩu tối thiểu 6 ký tự')}
+  else if(b.password&&b.password.length<6)return evErr('fuPw','Mật khẩu tối thiểu 6 ký tự');
+  if(r.code!=='admin'&&r.scope!=='all'&&!b.sale_name)return evErr('fuSale',`Nhóm “${r.name}” xem dữ liệu theo sale — chọn tên sale`);
+  await api('/users',{method:'POST',body:b});closeModal();toast(edit?'Đã lưu tài khoản':'Đã tạo tài khoản '+b.username+' — nhớ gửi mật khẩu cho người dùng');accountsDraw()}
+async function userDel(n){await api('/users',{method:'POST',body:{username:n,delete:true}});closeModal();toast('Đã xoá tài khoản');accountsDraw()}
+function pwForm(){evModal(`<div class="row"><h2 style="flex:1;margin:0" id="mTitle">Đổi mật khẩu</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <label class="lb">Mật khẩu hiện tại<input class="f" id="pwOld" type="password" autocomplete="current-password"></label>
+  <label class="lb">Mật khẩu mới<input class="f" id="pwNew" type="password" autocomplete="new-password"><span class="muted">Tối thiểu 6 ký tự. Các thiết bị khác đang đăng nhập tài khoản này sẽ bị đăng xuất.</span></label>
+  <label class="lb">Nhập lại mật khẩu mới<input class="f" id="pwNew2" type="password" autocomplete="new-password"></label>
+  <div class="row"><button class="btn primary" onclick="evRun(this,pwSave)">Đổi mật khẩu</button></div>`)}
+async function pwSave(){const o=$('#pwOld').value,n=$('#pwNew').value;if(!o)return evErr('pwOld','Nhập mật khẩu hiện tại');if(n.length<6)return evErr('pwNew','Mật khẩu mới tối thiểu 6 ký tự');if(n!==$('#pwNew2').value)return evErr('pwNew2','Hai lần nhập chưa khớp');
+  await api('/me/password',{method:'POST',body:{old:o,new:n}});closeModal();toast('Đã đổi mật khẩu')}
+
 async function settings(){
-  const s=await api('/status');const users=await api('/users');const m=$('#main');
-  m.innerHTML=topbar('Cài đặt & đồng bộ',{dates:false,sale:false})+`<div class="grid g2">
+  const s=await api('/status');const m=$('#main');
+  m.innerHTML=topbar('Cài đặt & đồng bộ',{dates:false,sale:false})+`<div id="acct"><div class="empty">Đang tải tài khoản…</div></div><div class="grid">
     <div class="card"><h3>Kết nối KiotViet</h3><div class="kv"><b>Cửa hàng</b><span>${esc(s.retailer)}</span><b>Trạng thái</b><span>${s.configured?'<span class="tag good">Đã cấu hình</span>':'<span class="tag bad">Chưa có Client ID/Secret trong .env</span>'}</span>
       <b>Đồng bộ gần nhất</b><span>${s.last_sync?s.last_sync.replace('T',' '):'chưa'}</span><b>Chu kỳ</b><span>mỗi ${s.interval} phút</span><b>Nguồn gán sale</b><span><select class="f" id="sSrc"><option value="name" ${s.sale_source==='name'?'selected':''}>Chỉ theo đuôi tên khách (chặt chẽ)</option><option value="auto" ${s.sale_source==='auto'?'selected':''}>Đuôi tên, thiếu thì lấy người bán trên HĐ</option><option value="group" ${s.sale_source==='group'?'selected':''}>Theo nhóm khách hàng</option><option value="manual" ${s.sale_source==='manual'?'selected':''}>Chỉ gán tay trong CRM</option></select></span><b>Ngừng mua</b><span><input class="f" type="number" id="sChurn" value="${s.churn_days}" style="width:80px"> ngày <button class="btn small" id="bSet">Lưu & tính lại</button></span><b>Sao lưu dữ liệu nhập tay</b><span>${s.backup?'<span class="tag good">Postgres (DATABASE_URL)</span>':'<span class="tag warn">Chưa bật — sẽ mất khi deploy lại</span>'}</span><b>Kiểm tra gần nhất</b><span>${s.last_verify?s.last_verify.replace('T',' '):'<span class="tag warn">chưa kiểm tra</span>'}</span><b>Bản sao toàn bộ DB</b><span>${s.snapshot?`${s.snapshot.at?dmy(s.snapshot.at)+' '+s.snapshot.at.slice(11,16)+' · '+(s.snapshot.bytes/1e6).toFixed(1)+' MB':'<span class="tag warn">chưa có</span>'} <span class="muted small">(tự động mỗi ${s.snapshot.every_hours}h)</span> <button class="btn small" id="bSnap">Sao lưu ngay</button>`:'<span class="tag warn">cần DATABASE_URL</span>'}</span></div>
       <div class="row" style="margin-top:12px"><button class="btn primary" id="bSync">Đồng bộ ngay</button><button class="btn" id="bFull">Đồng bộ lại toàn bộ</button><button class="btn" id="bVerify">Kiểm tra & vá dữ liệu</button></div>
       <h3 style="margin-top:16px">Dữ liệu hiện có</h3><div class="kv"><b>Khách hàng</b><span>${fmt(s.counts.customers)}</span><b>Hàng hoá</b><span>${fmt(s.counts.products)}</span><b>Hoá đơn</b><span>${fmt(s.counts.invoices)}</span><b>Đơn hàng</b><span>${fmt(s.counts.orders)}</span></div>
-      <h3 style="margin-top:16px">Lịch sử đồng bộ</h3><table>${s.log.map(l=>`<tr><td>${l.started.replace('T',' ')}</td><td>${l.ok?'<span class="tag good">OK</span>':'<span class="tag bad">Lỗi</span>'}</td><td class="small muted">${esc(l.message)} · KH ${l.customers} · HH ${l.products} · HĐ ${l.invoices} · ĐH ${l.orders}</td></tr>`).join('')}</table></div>
-    <div class="card"><h3>Tài khoản CRM</h3><p class="small muted"><b>Kế toán</b> xem tất cả, đặt chỉ tiêu, xuất Google Sheet. <b>Trưởng nhóm</b> xem mọi người cùng team với mình (theo bảng Xếp team bên dưới). <b>Sale</b> chỉ xem khách của mình. Trưởng nhóm và Sale phải chọn đúng tên sale. Đổi vai trò xong, người đó cần đăng xuất rồi đăng nhập lại.</p>
-      <table><thead><tr><th>Đăng nhập</th><th>Tên</th><th>Vai trò</th><th>Sale</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name||'')}</td><td>${ROLE[u.role]||esc(u.role)}</td><td>${esc(u.sale_name||'')}</td><td><button class="btn small" onclick="delUser('${esc(u.username)}')">Xoá</button></td></tr>`).join('')}</tbody></table>
-      <div class="row" style="margin-top:12px"><input id="nu" placeholder="Tên đăng nhập" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="np" placeholder="Mật khẩu" type="password" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><input id="nd" placeholder="Tên hiển thị" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)">
-      <select id="nr" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><option value="sale">Sale</option><option value="lead">Trưởng nhóm</option><option value="accountant">Kế toán</option></select>
-      <select id="ns" style="padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface)"><option value="">— sale —</option>${state.sales.map(x=>`<option>${esc(x)}</option>`).join('')}</select><button class="btn primary" id="bAdd">Thêm / cập nhật</button></div></div></div>`;
+      <h3 style="margin-top:16px">Lịch sử đồng bộ</h3><table>${s.log.map(l=>`<tr><td>${l.started.replace('T',' ')}</td><td>${l.ok?'<span class="tag good">OK</span>':'<span class="tag bad">Lỗi</span>'}</td><td class="small muted">${esc(l.message)} · KH ${l.customers} · HH ${l.products} · HĐ ${l.invoices} · ĐH ${l.orders}</td></tr>`).join('')}</table></div></div>`;
+  accountsDraw();
   const al=await api('/aliases');const users_k=state.sales.filter(x=>x!=='(Chưa gán)');
   m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Bí danh sale <span class="x">đuôi tên khách (vd "TLL", "NB", "Linh") → tên sale thống nhất</span></h3>
     <p class="small muted">CRM tách phần sau dấu "-" trong tên khách làm sale. Nếu một sale có nhiều cách viết (Linh / Linh Lybyn / TLL), gộp lại ở đây để báo cáo không bị tách dòng. Khách không có đuôi tên được xử lý theo lựa chọn "Nguồn gán sale" ở ô bên trái.</p>
@@ -952,11 +1021,9 @@ async function settings(){
   $('#bSync').onclick=async()=>{await api('/sync',{method:'POST'});toast('Đã bắt đầu đồng bộ');refreshSync()};
   $('#bVerify').onclick=async()=>{await api('/verify',{method:'POST'});toast('Đang đối chiếu với KiotViet…');refreshSync()};
   $('#bFull').onclick=async()=>{if(confirm('Tải lại toàn bộ dữ liệu từ KiotViet? Có thể mất vài phút.')){await api('/sync?full=true',{method:'POST'});toast('Đã bắt đầu đồng bộ toàn bộ');refreshSync()}};
-  $('#bAdd').onclick=async()=>{await api('/users',{method:'POST',body:{username:$('#nu').value,password:$('#np').value,display_name:$('#nd').value,role:$('#nr').value,sale_name:$('#ns').value}});toast('Đã lưu');loadPage()};
 }
 async function unBoss(id){await api('/boss',{method:'POST',body:{id,on:false}});toast('Đã bỏ');loadPage()}
 async function delAlias(a){if(confirm("Xoá bí danh "+a+"?")){await api("/aliases",{method:"POST",body:{alias:a,delete:true}});state.sales=await api("/sales");loadPage()}}
-async function delUser(u){if(confirm('Xoá tài khoản '+u+'?')){await api('/users',{method:'POST',body:{username:u,delete:true}});loadPage()}}
 
 
 // ============================================================================
@@ -1021,7 +1088,7 @@ async function board(){
 // Công việc & nhắc việc
 // ============================================================================
 async function tasks(){
-  const m=$('#main');const sale=state.user.role==='sale'?'':state.sale;
+  const m=$('#main');const sale=state.user.scope==='own'?'':state.sale;
   const [open,sug]=await Promise.all([api('/tasks?status=open&sale='+encodeURIComponent(sale)),api('/tasks/suggest?sale='+encodeURIComponent(sale))]);
   const today=iso(new Date());const od=open.filter(t=>t.overdue),td=open.filter(t=>t.today),up=open.filter(t=>!t.overdue&&!t.today);
   const TT={call:'Gọi điện',visit:'Ghé thăm',message:'Nhắn tin',birthday:'Chúc sinh nhật',reorder:'Nhắc mua lại',winback:'Kéo lại KH',debt:'Nhắc công nợ',other:'Khác'};
@@ -1086,7 +1153,7 @@ async function kpi(){
 const LOST=['Giá cao','Không phản hồi','Chọn bên khác','Chưa có nhu cầu','Không đủ vốn nhập','Hết hàng / không có mã cần'];
 const LSTAT=[['new','Mới'],['contacted','Đã liên hệ'],['consulting','Đang tư vấn'],['won','Đã chốt'],['lost','Thất bại']];
 async function leads(){
-  const m=$('#main');const sale=state.user.role==='sale'?'':state.sale;
+  const m=$('#main');const sale=state.user.scope==='own'?'':state.sale;
   const [rows,st]=await Promise.all([api('/leads?sale='+encodeURIComponent(sale)),api('/leads/stats?sale='+encodeURIComponent(sale))]);
   const F=st.funnel||{};const won=F.won||0,closed=won+(F.lost||0);
   const PROB={new:.1,contacted:.3,consulting:.6};const open=rows.filter(r=>PROB[r.status]!=null);

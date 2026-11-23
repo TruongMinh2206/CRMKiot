@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 import re
@@ -14,7 +15,9 @@ from . import config, db, sync, reports, excel, backup, gsheet
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
-from .main_auth import signer, COOKIE, _hash, current_user, scope, allowed, is_mgr, team_names, col_in  # noqa
+from .main_auth import (COOKIE, current_user, scope, allowed, is_mgr, is_admin, can, team_names, col_in,  # noqa
+                        PAGES, PERMS, SCOPES, ROLE_DEPT, hash_pw, check_pw, resolve, session_cookie, seed_roles,
+                        roles_list, slug, pages_for)
 from . import extras, campaign, events
 app.include_router(extras.router)
 app.include_router(campaign.router)
@@ -26,22 +29,41 @@ def sale_scope(user, sale):
     return scope(user, sale)
 
 
+_fails = {}   # tên đăng nhập -> [số lần sai, thời điểm mở khoá]
+
+
+def _login_cookie(resp, user):
+    resp.set_cookie(COOKIE, session_cookie(user), httponly=True, samesite="lax", max_age=30 * 86400)
+    return resp
+
+
 @app.post("/api/login")
 async def login(request: Request):
     body = await request.json()
     u, p = (body.get("username") or "").strip(), body.get("password") or ""
+    key = u.lower()
+    n, until = _fails.get(key, (0, None))
+    if until and datetime.now() < until:
+        raise HTTPException(429, f"Sai mật khẩu nhiều lần. Thử lại sau {max(1, int((until - datetime.now()).total_seconds() // 60) + 1)} phút")
     user = None
-    if u == config.ADMIN_USER and p == config.ADMIN_PASSWORD:
-        user = {"username": u, "role": "admin", "display_name": "Quản trị", "sale_name": None}
+    if u == config.ADMIN_USER and hmac.compare_digest(p.encode(), config.ADMIN_PASSWORD.encode()):
+        user = resolve(u, env=True)
     else:
         r = db.one("SELECT * FROM crm_users WHERE username=?", (u,))
-        if r and r["password"] == _hash(p):
-            user = {"username": u, "role": r["role"], "display_name": r["display_name"] or u, "sale_name": r["sale_name"]}
+        ok, rehash = check_pw(p, r["password"]) if r else (False, False)
+        if ok and r.get("active") == 0:
+            raise HTTPException(403, "Tài khoản đã bị khoá. Liên hệ quản trị")
+        if ok:
+            with db.cursor() as con:
+                con.execute("UPDATE crm_users SET last_login=?" + (", password=?" if rehash else "") + " WHERE username=?",
+                            (datetime.now().isoformat(timespec="seconds"),) + ((hash_pw(p),) if rehash else ()) + (u,))
+            user = resolve(u)
     if not user:
+        n += 1
+        _fails[key] = (n, datetime.now() + timedelta(minutes=5) if n >= 5 else None)
         raise HTTPException(401, "Sai tài khoản hoặc mật khẩu")
-    resp = JSONResponse(user)
-    resp.set_cookie(COOKIE, signer.dumps(user), httponly=True, samesite="lax", max_age=30 * 86400)
-    return resp
+    _fails.pop(key, None)
+    return _login_cookie(JSONResponse(user), user)
 
 
 @app.post("/api/logout")
@@ -54,6 +76,23 @@ def logout():
 @app.get("/api/me")
 def me(user=Depends(current_user)):
     return user
+
+
+@app.post("/api/me/password")
+async def me_password(request: Request, user=Depends(current_user)):
+    """Tự đổi mật khẩu. Các phiên đăng nhập khác của tài khoản này bị đăng xuất."""
+    if user.get("env"):
+        raise HTTPException(400, "Tài khoản quản trị gốc đổi mật khẩu ở biến ADMIN_PASSWORD trên Render / file .env")
+    b = await request.json()
+    old, new = b.get("old") or "", b.get("new") or ""
+    r = db.one("SELECT password, ver FROM crm_users WHERE username=?", (user["username"],))
+    if not r or not check_pw(old, r["password"])[0]:
+        raise HTTPException(400, "Mật khẩu hiện tại không đúng")
+    if len(new) < 6:
+        raise HTTPException(400, "Mật khẩu mới tối thiểu 6 ký tự")
+    with db.cursor() as con:
+        con.execute("UPDATE crm_users SET password=?, ver=COALESCE(ver,0)+1 WHERE username=?", (hash_pw(new), user["username"]))
+    return _login_cookie(JSONResponse({"ok": True}), resolve(user["username"]))
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +111,7 @@ def status(user=Depends(current_user)):
 @app.post("/api/verify")
 def verify_now(user=Depends(current_user)):
     """Đối chiếu số bản ghi với KiotViet và tải lại tháng nào thiếu."""
-    if user["role"] not in ("admin", "accountant"):
+    if not can(user, "sync"):
         raise HTTPException(403)
     if sync.state["running"]:
         return {"ok": False, "message": "Đang đồng bộ"}
@@ -95,14 +134,14 @@ def verify_now(user=Depends(current_user)):
 
 @app.post("/api/snapshot")
 def snapshot_now(user=Depends(current_user)):
-    if user["role"] != "admin":
+    if not is_admin(user):
         raise HTTPException(403)
     return {"ok": True, "result": backup.snapshot_db(force=True)}
 
 
 @app.post("/api/sync")
 def run_sync(full: bool = False, user=Depends(current_user)):
-    if user["role"] not in ("admin", "accountant"):
+    if not can(user, "sync"):
         raise HTTPException(403)
     if sync.state["running"]:
         return {"ok": False, "message": "Đang đồng bộ"}
@@ -113,8 +152,8 @@ def run_sync(full: bool = False, user=Depends(current_user)):
 @app.get("/api/sales")
 def sales(user=Depends(current_user)):
     allnames = reports.sales_list()
-    if user.get("role") == "lead":            # trưởng nhóm chỉ lọc trong team mình
-        mine = team_names(user) or []
+    mine = team_names(user)                   # trưởng nhóm / sale chỉ lọc trong phạm vi của mình
+    if mine is not None:
         return [x for x in allnames if x in mine] or mine
     return allnames
 
@@ -122,7 +161,7 @@ def sales(user=Depends(current_user)):
 @app.post("/api/settings")
 async def settings_save(request: Request, user=Depends(current_user)):
     """Đổi cách gán sale / số ngày ngừng mua, áp dụng ngay không cần deploy lại."""
-    if user["role"] != "admin":
+    if not is_admin(user):
         raise HTTPException(403)
     b = await request.json()
     src = (b.get("sale_source") or "").lower()
@@ -145,7 +184,7 @@ def gsheet_status(user=Depends(current_user)):
 
 @app.post("/api/gsheet")
 async def gsheet_config(request: Request, user=Depends(current_user)):
-    if user["role"] != "admin":
+    if not is_admin(user):
         raise HTTPException(403)
     b = await request.json()
     if b.get("sa"):
@@ -272,7 +311,7 @@ def c_detail(cid: int, user=Depends(current_user)):
 
 @app.post("/api/customers/{cid}/sale")
 async def c_assign(cid: int, request: Request, user=Depends(current_user)):
-    if user["role"] not in ("admin", "accountant"):
+    if not is_mgr(user):
         raise HTTPException(403)
     body = await request.json()
     with db.cursor() as con:
@@ -290,38 +329,109 @@ async def c_note(cid: int, request: Request, user=Depends(current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Users (admin)
+# Tài khoản & nhóm quyền (chỉ Quản trị)
 # ---------------------------------------------------------------------------
+def _admin_only(user):
+    if not is_admin(user):
+        raise HTTPException(403, "Chỉ quản trị được quản lý tài khoản và phân quyền")
+
+
 @app.get("/api/users")
 def users_list(user=Depends(current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(403)
-    return db.rows("SELECT username, role, sale_name, display_name FROM crm_users ORDER BY username")
+    _admin_only(user)
+    return {"users": db.rows("""SELECT username, display_name, role, dept, sale_name, COALESCE(active,1) active, created, last_login
+                                FROM crm_users ORDER BY role, username"""),
+            "roles": roles_list(), "pages": [p for p in PAGES if p != "settings"], "perms": PERMS, "scopes": SCOPES,
+            "depts": events.DEPTS, "role_dept": ROLE_DEPT, "admin_user": config.ADMIN_USER, "me": user["username"]}
 
 
 @app.post("/api/users")
 async def users_save(request: Request, user=Depends(current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(403)
+    _admin_only(user)
     b = await request.json()
-    if not b.get("username"):
-        raise HTTPException(400, "Thiếu tên đăng nhập")
+    name = (b.get("username") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{2,40}", name):
+        raise HTTPException(400, "Tên đăng nhập 2–40 ký tự: chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang")
+    if name.lower() == config.ADMIN_USER.lower():
+        raise HTTPException(400, "Trùng tên tài khoản quản trị gốc")
+    with db.cursor() as con:
+        old = con.execute("SELECT * FROM crm_users WHERE username=?", (name,)).fetchone()
+        if b.get("delete"):
+            if name == user["username"]:
+                raise HTTPException(400, "Không tự xoá tài khoản đang đăng nhập")
+            con.execute("DELETE FROM crm_users WHERE username=?", (name,))
+            return {"ok": True}
+        if b.get("create") and old:
+            raise HTTPException(400, "Tên đăng nhập đã có, chọn tên khác")
+        role = b.get("role") or (old["role"] if old else "sale")
+        r = con.execute("SELECT * FROM roles WHERE code=?", (role,)).fetchone()
+        if not r:
+            raise HTTPException(400, "Nhóm quyền không tồn tại")
+        keep = lambda k, default=None: b[k] if k in b else (old[k] if old else default)   # sửa một phần: ô không gửi thì giữ nguyên
+        sale = (keep("sale_name") or "").strip() or None
+        if role != "admin" and r["scope"] in ("own", "team") and not sale:
+            raise HTTPException(400, f"Nhóm “{r['name']}” xem dữ liệu theo sale — chọn tên sale cho tài khoản")
+        active = 0 if keep("active", 1) in (False, 0, "0") else 1
+        if not active and name == user["username"]:
+            raise HTTPException(400, "Không tự khoá tài khoản đang đăng nhập")
+        pw = b.get("password") or ""
+        if pw and len(pw) < 6:
+            raise HTTPException(400, "Mật khẩu tối thiểu 6 ký tự")
+        if not old and not pw:
+            raise HTTPException(400, "Nhập mật khẩu cho tài khoản mới")
+        dept = keep("dept") if keep("dept") in events.DEPTS else ROLE_DEPT.get(role, "")
+        vals = ((keep("display_name") or "").strip() or name, role, dept, sale, active)
+        if old:
+            con.execute("UPDATE crm_users SET display_name=?, role=?, dept=?, sale_name=?, active=?"
+                        + (", password=?, ver=COALESCE(ver,0)+1" if pw else "") + " WHERE username=?",
+                        vals + ((hash_pw(pw),) if pw else ()) + (name,))
+        else:
+            con.execute("INSERT INTO crm_users(display_name,role,dept,sale_name,active,username,password,ver,created) VALUES(?,?,?,?,?,?,?,0,?)",
+                        vals + (name, hash_pw(pw), datetime.now().isoformat(timespec="seconds")))
+    return {"ok": True}
+
+
+@app.get("/api/roles")
+def roles_get(user=Depends(current_user)):
+    _admin_only(user)
+    return roles_list()
+
+
+@app.post("/api/roles")
+async def roles_save(request: Request, user=Depends(current_user)):
+    """Lưu một hoặc nhiều nhóm quyền ({roles: [...]}), tạo nhóm mới, hoặc xoá nhóm tự tạo ({delete: mã})."""
+    _admin_only(user)
+    b = await request.json()
     with db.cursor() as con:
         if b.get("delete"):
-            con.execute("DELETE FROM crm_users WHERE username=?", (b["username"],))
+            r = con.execute("SELECT builtin FROM roles WHERE code=?", (b["delete"],)).fetchone()
+            if not r:
+                raise HTTPException(404, "Không tìm thấy nhóm quyền")
+            if r["builtin"]:
+                raise HTTPException(400, "Nhóm có sẵn không xoá được, chỉ chỉnh quyền")
+            n = con.execute("SELECT COUNT(*) FROM crm_users WHERE role=?", (b["delete"],)).fetchone()[0]
+            if n:
+                raise HTTPException(400, f"Còn {n} tài khoản thuộc nhóm này — chuyển họ sang nhóm khác trước")
+            con.execute("DELETE FROM roles WHERE code=?", (b["delete"],))
             return {"ok": True}
-        existing = con.execute("SELECT password FROM crm_users WHERE username=?", (b["username"],)).fetchone()
-        pw = _hash(b["password"]) if b.get("password") else (existing["password"] if existing else None)
-        if not pw:
-            raise HTTPException(400, "Thiếu mật khẩu")
-        role = b.get("role", "sale")
-        if role not in ("accountant", "lead", "sale"):
-            raise HTTPException(400, "Vai trò không hợp lệ")
-        if role in ("lead", "sale") and not b.get("sale_name"):
-            raise HTTPException(400, "Tài khoản Sale / Trưởng nhóm phải chọn tên sale")
-        con.execute("INSERT OR REPLACE INTO crm_users(username,password,role,sale_name,display_name) VALUES(?,?,?,?,?)",
-                    (b["username"], pw, role, b.get("sale_name"), b.get("display_name")))
-    return {"ok": True}
+        for x in b.get("roles") or [b]:
+            name = (x.get("name") or "").strip()
+            if not name:
+                raise HTTPException(400, "Nhập tên nhóm quyền")
+            code = x.get("code")
+            if code == "admin":
+                continue                       # Quản trị luôn có toàn quyền
+            vals = (name, json.dumps([p for p in x.get("pages") or [] if p in PAGES and p != "settings"]),
+                    x.get("scope") if x.get("scope") in SCOPES else "own", json.dumps([p for p in x.get("perms") or [] if p in PERMS]))
+            if code and con.execute("SELECT 1 FROM roles WHERE code=?", (code,)).fetchone():
+                con.execute("UPDATE roles SET name=?, pages=?, scope=?, perms=? WHERE code=?", vals + (code,))
+            else:
+                base = code = slug(name)
+                i = 2
+                while con.execute("SELECT 1 FROM roles WHERE code=?", (code,)).fetchone():
+                    code, i = f"{base}_{i}", i + 1
+                con.execute("INSERT INTO roles(name,pages,scope,perms,code,builtin,position) VALUES(?,?,?,?,?,0,99)", vals + (code,))
+    return {"ok": True, "roles": roles_list()}
 
 
 @app.get("/api/aliases")
@@ -333,7 +443,7 @@ def aliases_list(user=Depends(current_user)):
 
 @app.post("/api/aliases")
 async def aliases_save(request: Request, user=Depends(current_user)):
-    if user["role"] not in ("admin", "accountant"):
+    if not is_mgr(user):
         raise HTTPException(403)
     b = await request.json()
     alias = (b.get("alias") or "").strip()
@@ -358,6 +468,8 @@ M, P = excel.MONEY, excel.PCT
 @app.get("/api/export/{report}")
 def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), sale: str = None,
            months: int = 12, days: int = 30, ym: str = None, kind: str = None, user=Depends(current_user)):
+    if not can(user, "export"):
+        raise HTTPException(403, "Tài khoản chưa được cấp quyền xuất Excel")
     f, t = _dates(from_d, to_d)
     s = sale_scope(user, sale)
     sheets = []
@@ -472,11 +584,26 @@ def startup():
     backup.restore_db()      # lấy lại toàn bộ DB nếu ổ đĩa vừa bị xoá
     db.init()
     backup.restore()
+    seed_roles()
     events.upgrade()
     cd = db.get_meta("churn_days")
     if cd:
         config.CHURN_DAYS = int(cd)
     sync.start_scheduler()
+
+
+@app.middleware("http")
+async def page_guard(request: Request, call_next):
+    """Chặn API của những trang mà nhóm quyền của người dùng không được xem."""
+    need = pages_for(request.url.path)
+    if need:
+        try:
+            user = current_user(request)
+        except HTTPException:
+            user = None                       # để chính API trả lời 401
+        if user and not need & set(user["pages"]):
+            return JSONResponse({"detail": "Tài khoản chưa được cấp quyền xem mục này"}, status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")
