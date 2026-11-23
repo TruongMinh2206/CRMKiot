@@ -50,6 +50,7 @@ Mỗi người tự đổi mật khẩu ở góc dưới menu. Tài khoản qu�
 Quyền gắn theo **nhóm quyền**, chỉnh ở **Cài đặt → Phân quyền theo nhóm**:
 - **Trang được xem**: tích từng trang trong menu; API của trang không được tích bị chặn ở máy chủ.
 - **Phạm vi dữ liệu theo sale**: *Tất cả* · *Team của mình* (theo Xếp team) · *Chỉ của mình* (theo tên sale của tài khoản).
+- **Việc của từng người** (trang Công việc, ai cũng có): mỗi người chỉ thấy việc được giao cho mình; Trưởng nhóm (phạm vi *Team*) thấy thêm việc cả team; tích quyền *Xem việc của mọi người* (mặc định: Quản trị, Ban giám đốc) mới thấy tất cả. Chỉ được giao việc cho người trong phạm vi của mình, sửa / xong / dời việc của người ngoài phạm vi bị chặn ở máy chủ.
 - **Thao tác**: quản lý dữ liệu (KPI, gán sale, xếp team, khách sếp, thưởng chiến dịch), điều phối sự kiện, xuất Excel, đồng bộ KiotViet.
 
 Nhóm có sẵn: Quản trị, Ban giám đốc, Kế toán, Trưởng nhóm sale, Sale, Marketing, Kho / Thu mua, HCNS — sửa được, thêm được nhóm mới.

@@ -2,7 +2,7 @@
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from . import db, reports, config
-from .main_auth import current_user, scope, allowed, col_in, is_mgr, team_names
+from .main_auth import current_user, scope, allowed, col_in, is_mgr, team_names, task_names, task_cond, task_key
 
 router = APIRouter(prefix="/api")
 
@@ -103,7 +103,7 @@ async def kpi_copy(request: Request, user=Depends(current_user)):
 # ===========================================================================
 @router.get("/tasks")
 def tasks_list(status: str = "open", sale: str = None, days: int = 7, user=Depends(current_user)):
-    cond, p = col_in("t.assigned_to", scope(user, sale))
+    cond, p = task_cond(user, "t.assigned_to", sale)
     if status == "open":
         rows = db.rows(f"""SELECT t.*, c.name customer_name, c.contact_number, c.code customer_code, l.name lead_name, l.phone lead_phone
             FROM tasks t LEFT JOIN customers c ON c.id=t.customer_id LEFT JOIN leads l ON l.id=t.lead_id
@@ -123,18 +123,28 @@ def tasks_list(status: str = "open", sale: str = None, days: int = 7, user=Depen
 @router.post("/tasks")
 async def tasks_save(request: Request, user=Depends(current_user)):
     b = await request.json()
+    names = task_names(user)
     with db.cursor() as con:
         if b.get("id"):
+            old = con.execute("SELECT assigned_to FROM tasks WHERE id=?", (b["id"],)).fetchone()
+            if not old:
+                raise HTTPException(404, "Không có việc này")
+            if names is not None and (old["assigned_to"] or "") not in names:
+                raise HTTPException(403, "Đây không phải việc của bạn")
             if b.get("status") in ("done", "cancelled"):
                 con.execute("UPDATE tasks SET status=?, result=?, done_at=? WHERE id=?",
                             (b["status"], b.get("result"), _now(), b["id"]))
             elif b.get("status") == "open":
                 con.execute("UPDATE tasks SET status='open', done_at=NULL WHERE id=?", (b["id"],))
             else:
+                if names is not None and (b.get("assigned_to") or "") not in names:
+                    raise HTTPException(403, "Không giao việc cho người ngoài phạm vi của bạn")
                 con.execute("UPDATE tasks SET title=?, type=?, due_date=?, assigned_to=?, priority=? WHERE id=?",
                             (b.get("title"), b.get("type", "call"), b.get("due_date"), b.get("assigned_to"), int(b.get("priority") or 0), b["id"]))
             return {"ok": True, "id": b["id"]}
-        assigned = b.get("assigned_to") or _my_sale(user) or ""
+        assigned = b.get("assigned_to") or task_key(user)
+        if names is not None and assigned not in names:
+            raise HTTPException(403, "Không giao việc cho người ngoài phạm vi của bạn")
         cur = con.execute("""INSERT OR IGNORE INTO tasks(customer_id,lead_id,title,type,due_date,assigned_to,status,created,created_by,auto_key,priority)
             VALUES(?,?,?,?,?,?,'open',?,?,?,?)""",
                           (b.get("customer_id"), b.get("lead_id"), b.get("title") or TASK_TYPES.get(b.get("type"), "Việc"), b.get("type", "call"),
@@ -147,20 +157,47 @@ async def tasks_bulk(request: Request, user=Depends(current_user)):
     """Tạo nhiều việc từ gợi ý (bỏ qua việc đã tồn tại nhờ auto_key)."""
     b = await request.json()
     n = 0
+    names = task_names(user)
     with db.cursor() as con:
         for t in b.get("items", []):
+            who = t.get("assigned_to") or task_key(user)
+            if names is not None and who not in names:
+                who = task_key(user)
             cur = con.execute("""INSERT OR IGNORE INTO tasks(customer_id,title,type,due_date,assigned_to,status,created,created_by,auto_key,priority)
                 VALUES(?,?,?,?,?,'open',?,?,?,?)""",
-                              (t.get("customer_id"), t.get("title"), t.get("type", "call"), t.get("due_date"), t.get("assigned_to") or "",
+                              (t.get("customer_id"), t.get("title"), t.get("type", "call"), t.get("due_date"), who,
                                _now(), user["display_name"], t.get("auto_key"), int(t.get("priority") or 0)))
             n += cur.rowcount
     return {"ok": True, "created": n}
 
 
+@router.get("/tasks/people")
+def tasks_people(user=Depends(current_user)):
+    """Những người có thể xem / giao việc: {me, people:[{value,label}]}. Giá trị là tên ghi ở cột assigned_to."""
+    names = task_names(user)
+    label = {}
+    for u in db.rows("SELECT display_name, username, sale_name FROM crm_users WHERE active IS NOT 0"):
+        label[u["sale_name"] or u["display_name"] or u["username"]] = u["display_name"] or u["username"]
+    if names is None:
+        for r in db.rows("SELECT DISTINCT assigned_to a FROM tasks WHERE assigned_to<>''"):
+            label.setdefault(r["a"], r["a"])
+        for s in reports.sales_list():
+            label.setdefault(s, s)
+        label.pop("(Chưa gán)", None)
+        vals = sorted(label, key=lambda v: label[v].lower())
+    else:
+        vals = [v for v in names if v == task_key(user) or v != user["display_name"]]
+    me = task_key(user)
+    vals = [me] + [v for v in vals if v != me]
+    return {"me": me, "all": names is None, "default": "" if names is None or user.get("scope") == "team" else me,
+            "people": [{"value": v, "label": label.get(v) or v} for v in vals]}
+
+
 @router.get("/tasks/suggest")
 def tasks_suggest(sale: str = None, user=Depends(current_user)):
-    """Gợi ý việc tự động: sinh nhật, ngừng mua, đến kỳ mua lại."""
-    s = scope(user, sale)
+    """Gợi ý việc tự động: sinh nhật, ngừng mua, đến kỳ mua lại — chỉ cho những người mà tài khoản này được xem việc."""
+    names = task_names(user)
+    s = (sale or None) if names is None else (names[0] if len(names) == 1 else names)
     sf, sp = reports._sale_filter(s)
     today = date.today()
     out = []
@@ -490,7 +527,7 @@ def alerts(user=Depends(current_user)):
                     "title": "Khách nợ quá hạn", "note": f"quá {d['term']} ngày"
                     + (f" · {d['risk_customers']} khách đã ngừng mua trên 60 ngày" if d["risk_customers"] else "")})
 
-    c, p = col_in("assigned_to", s)
+    c, p = task_cond(user, "assigned_to")
     n = db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date<? {c}", (today.isoformat(),) + p)["n"]
     if n:
         out.append({"key": "tasks", "level": "bad", "n": n, "href": "#tasks", "title": "Việc quá hạn", "note": "chưa đánh dấu xong"})

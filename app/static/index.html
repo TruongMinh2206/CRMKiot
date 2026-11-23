@@ -338,7 +338,7 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 const isAdmin=()=>state.user.role==='admin';
 const can=p=>isAdmin()||(state.user.perms||[]).includes(p);
 const isMgr=()=>can('manage');
-const canPage=k=>k==='tools'||(state.user.pages||[]).includes(k);   // Công cụ ngoại vi: mọi tài khoản đều dùng
+const canPage=k=>k==='tools'||k==='tasks'||(state.user.pages||[]).includes(k);   // Công cụ ngoại vi: mọi tài khoản đều dùng
 const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['tools','Công cụ ngoại vi','tools'],['settings','Cài đặt','settings']];
 const NAV_GROUPS=[['','overview board kpi'],['Khách hàng','sales customers trend leads birthdays debts'],['Công việc','tasks events campaign'],['Hàng hoá & đơn','products journey'],['Hệ thống','tools settings']];
 const PAGE_COLOR={overview:'#1f63e0',board:'#0f9d58',kpi:'#e5484d',sales:'#1f63e0',customers:'#0f9d58',trend:'#12a594',leads:'#8e4ec6',birthdays:'#d6409f',debts:'#e5484d',tasks:'#f76b15',events:'#f76b15',campaign:'#d6409f',products:'#ca8a04',journey:'#12a594',tools:'#6b6d72',settings:'#6b6d72'};
@@ -1007,7 +1007,7 @@ async function accountsDraw(){const el=$('#acct');if(!el)return;const d=await ap
   <div class="card" style="margin-bottom:14px"><h3>Phân quyền theo nhóm <span class="x">tích trang mỗi nhóm được xem · Cài đặt luôn chỉ dành cho Quản trị</span></h3>${rolesMatrix(d)}</div>`;
   let tm;$('#uQ').oninput=x=>{clearTimeout(tm);tm=setTimeout(()=>{state.acctQ=x.target.value;accountsDraw().then(()=>{const i=$('#uQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
   $('#uRole').onchange=x=>{state.acctRole=x.target.value;accountsDraw()}}
-function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>p[0]!=='settings'&&p[0]!=='tools'),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
+function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>!['settings','tools','tasks'].includes(p[0])),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
   const cb=(r,t,k,on,lbl)=>`<td class="rmc"><input type="checkbox" class="rm" data-c="${r.code}" data-t="${t}" data-k="${k}" ${on?'checked':''} ${r.code==='admin'?'disabled':''} aria-label="${esc(r.name)}: ${esc(lbl)}"></td>`;
   const head=`<tr><th>Trang / quyền</th>${R.map(r=>`<th class="rmc">${r.code==='admin'?esc(r.name):`<input class="f rmName" data-c="${r.code}" value="${esc(r.name)}" aria-label="Tên nhóm quyền">`}<div class="small muted" style="font-weight:400">${r.users} tài khoản${r.builtin?'':` · <a href="#" onclick="roleDel('${r.code}');return false">xoá nhóm</a>`}</div></th>`).join('')}</tr>`;
   const pages=P.map(([k,l,i])=>`<tr><td><span class="rml">${ic(i)} ${l}</span></td>${R.map(r=>cb(r,'p',k,r.code==='admin'||r.pages.includes(k),l)).join('')}</tr>`).join('');
@@ -1231,7 +1231,9 @@ const tkWho=t=>t.customer_name?`<a href="#" onclick="event.stopPropagation();ope
 const tkAct=(f,id,txt,cls='')=>`<button class="btn small ${cls}" onclick="evRun(this,()=>${f})">${txt}</button>`;
 
 async function tasks(){
-  const sale=state.user.scope==='own'?'':state.sale,q=encodeURIComponent(sale);
+  const P=window._tkP=await api('/tasks/people');
+  if(state.tkWho===undefined||(state.tkWho&&!P.people.some(p=>p.value===state.tkWho)))state.tkWho=P.default;   // mặc định: quản lý xem tất cả, nhân viên xem việc của mình
+  const q=encodeURIComponent(state.tkWho);
   const [open,sug]=await Promise.all([api('/tasks?status=open&sale='+q),api('/tasks/suggest?sale='+q)]);
   window._tk={open,sug:sug.filter(x=>!x.exists),q};window._sug=sug;
   if(!state.tk)state.tk={tab:'open',f:'all',more:{}};
@@ -1257,14 +1259,16 @@ function tkDraw(){
       ${l.length>lim?`<button class="tkmore" onclick="tkMore('s${k}')">Xem thêm ${l.length-lim} khách</button>`:''}</div>`}).join('')
       :'<div class="card empty"><h3 style="justify-content:center">Chưa có gợi ý mới</h3><p>Gợi ý tự cập nhật theo dữ liệu bán hàng.</p></div>');
   }else body='<div class="card" id="tkHist"><div class="empty">Đang tải…</div></div>';
-  $('#main').innerHTML=topbar('Công việc',{dates:false,extra:'<button class="btn primary" onclick="newTask()">＋ Thêm việc</button>'})+
+  const P=window._tkP,who=P.people.length>1?`<select id="tkWho" class="f" aria-label="Xem việc của" onchange="state.tkWho=this.value;tasks()"><option value="" ${state.tkWho===''?'selected':''}>${P.all?'Tất cả mọi người':'Cả team'}</option><option value="${esc(P.me)}" ${state.tkWho===P.me?'selected':''}>Việc của tôi</option>${P.people.filter(p=>p.value!==P.me).map(p=>`<option value="${esc(p.value)}" ${state.tkWho===p.value?'selected':''}>${esc(p.label)}</option>`).join('')}</select>`:'';
+  $('#main').innerHTML=topbar('Công việc',{dates:false,sale:false,extra:who+'<button class="btn primary" onclick="newTask()">＋ Thêm việc</button>'})+
     `<p class="tkhelp">Việc cần làm với khách hàng. Làm xong thì bấm vòng tròn <span class="tkchk tkdemo"></span> bên trái để ghi kết quả; bấm vào dòng việc để dời hạn hoặc bỏ.</p>
     <div class="tktabs" role="tablist">${tabs.map(([k,l,n])=>`<button role="tab" aria-selected="${S.tab===k}" class="${S.tab===k?'on':''}" onclick="tkTab('${k}')">${l}${n==null?'':`<span class="tkn">${n}</span>`}</button>`).join('')}</div>${body}`;
   bindTopbar();if(S.tab==='done')tkHist()}
 function tkRow(t){const d=tkDays(t.due_date),lbl=d<0?`Trễ ${-d} ngày`:d===0?'Hôm nay':d===1?'Ngày mai':dmy(t.due_date),cls=d<0?'bad':d===0?'warn':'',ph=tkPhone(t.contact_number||t.lead_phone);
   return `<div class="tk" onclick="taskModal(${t.id})"><button class="tkchk" aria-label="Hoàn thành: ${esc(t.title)}" onclick="event.stopPropagation();taskModal(${t.id})"></button>
-    <div class="tkb"><div class="tkt">${esc(t.title)}</div><div class="tkm">${tkWho(t)}${ph?` · <a href="tel:${ph}" onclick="event.stopPropagation()">${ph}</a>`:''}${t.assigned_to&&state.user.scope!=='own'?' · '+esc(t.assigned_to):''}</div></div>
+    <div class="tkb"><div class="tkt">${esc(t.title)}</div><div class="tkm">${tkWho(t)}${ph?` · <a href="tel:${ph}" onclick="event.stopPropagation()">${ph}</a>`:''}${state.tkWho!==window._tkP.me&&t.assigned_to?' · '+esc(tkName(t.assigned_to)):''}</div></div>
     <div class="tkr"><span class="tag">${esc(TK_TYPE[t.type]||t.type)}</span><span class="tkdue ${cls}">${lbl}</span></div></div>`}
+const tkName=v=>((window._tkP.people.find(p=>p.value===v))||{label:v}).label;
 function tkTab(k){state.tk.tab=k;tkDraw()}
 function tkF(k){state.tk.f=k;tkDraw()}
 function tkMore(k){state.tk.more[k]=1;tkDraw()}
@@ -1272,7 +1276,7 @@ async function tkHist(){const h=await api('/tasks?status=done&sale='+window._tk.
   el.innerHTML=`<h3>Đã xong hoặc đã bỏ <span class="x">${h.length} việc gần nhất</span></h3>`+(h.length?`<div class="tablewrap"><table><thead><tr><th>Việc</th><th>Khách</th><th>Sale</th><th>Hạn</th><th>Xong lúc</th><th>Kết quả</th><th>TT</th></tr></thead><tbody>${h.map(t=>`<tr><td class="name">${esc(t.title)}</td><td>${esc(t.customer_name||t.lead_name||'')}</td><td>${esc(t.assigned_to||'')}</td><td>${dmy(t.due_date)}</td><td>${(t.done_at||'').replace('T',' ').slice(0,16)}</td><td class="name">${esc(t.result||'')}</td><td><span class="tag ${t.status==='done'?'good':''}">${t.status==='done'?'Xong':'Bỏ'}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có việc nào hoàn thành.</div>')}
 function taskModal(id){const t=window._tk.open.find(x=>x.id===id);if(!t)return;const ph=tkPhone(t.contact_number||t.lead_phone);
   evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${esc(t.title)}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
-  <p class="small muted" style="margin:6px 0 16px">${tkWho(t)}${ph?` · <a href="tel:${ph}">${ph}</a>`:''} · hạn ${dmy(t.due_date)}${t.assigned_to?' · '+esc(t.assigned_to):''}</p>
+  <p class="small muted" style="margin:6px 0 16px">${tkWho(t)}${ph?` · <a href="tel:${ph}">${ph}</a>`:''} · hạn ${dmy(t.due_date)}${t.assigned_to?' · '+esc(tkName(t.assigned_to)):''}</p>
   <div class="tkh2">Kết quả <span class="muted">(không bắt buộc)</span></div>
   <div class="chips" id="tkRes">${TK_RESULTS.map(r=>`<button type="button" class="chip" aria-pressed="false" onclick="tkPick(this)">${r}</button>`).join('')}</div>
   <input class="f" id="tkNote" placeholder="Ghi chú thêm…" style="width:100%;margin:10px 0 14px" aria-label="Ghi chú">
@@ -1281,6 +1285,7 @@ function taskModal(id){const t=window._tk.open.find(x=>x.id===id);if(!t)return;c
   <div class="tkh2">Chưa làm được? Dời hạn sang</div>
   <div class="row"><button class="btn small" onclick="evRun(this,()=>tkMove(${id},1))">Ngày mai</button><button class="btn small" onclick="evRun(this,()=>tkMove(${id},3))">3 ngày nữa</button><button class="btn small" onclick="evRun(this,()=>tkMove(${id},7))">1 tuần nữa</button>
     <input class="f" type="date" id="tkDate" aria-label="Chọn ngày" style="padding:4px 8px"><button class="btn small" onclick="evRun(this,()=>tkMove(${id},0))">Dời</button></div>
+  ${window._tkP.people.length>1?`<div class="tkhr"></div><div class="tkh2">Giao lại cho người khác</div><div class="row"><select class="f" id="tkAsg" aria-label="Người nhận việc">${window._tkP.people.map(p=>`<option value="${esc(p.value)}" ${p.value===t.assigned_to?'selected':''}>${esc(p.label)}</option>`).join('')}</select><button class="btn small" onclick="evRun(this,()=>tkAssign(${id}))">Giao</button></div>`:''}
   <div class="tkhr"></div>
   <button class="btn small danger" onclick="$('#tkDel').hidden=false">Bỏ việc này</button>
   <div id="tkDel" class="evconfirm" hidden>Bỏ hẳn việc này (không làm nữa)? <button class="btn small" onclick="$('#tkDel').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>tkCancel(${id}))">Bỏ việc</button></div>`);
@@ -1291,21 +1296,23 @@ async function tkDone(id){const c=document.querySelector('#tkRes .chip.on'),n=$(
 async function tkMove(id,days){const t=window._tk.open.find(x=>x.id===id);if(!t)return;let d;
   if(days)d=iso(new Date(Date.now()+days*864e5));else{d=$('#tkDate').value;if(!d)return evErr('tkDate','Chọn ngày muốn dời tới')}
   await api('/tasks',{method:'POST',body:{id,title:t.title,type:t.type,due_date:d,assigned_to:t.assigned_to,priority:t.priority}});closeModal();toast('Đã dời hạn tới '+dmy(d));tasks()}
+async function tkAssign(id){const t=window._tk.open.find(x=>x.id===id),to=$('#tkAsg').value;if(!t||to===t.assigned_to){closeModal();return}
+  await api('/tasks',{method:'POST',body:{id,title:t.title,type:t.type,due_date:t.due_date,assigned_to:to,priority:t.priority}});closeModal();toast('Đã giao việc cho '+tkName(to));tasks()}
 async function tkCancel(id){await api('/tasks',{method:'POST',body:{id,status:'cancelled'}});closeModal();toast('Đã bỏ việc');tasks()}
 async function addSug(k){const items=(window._sug||[]).filter(x=>!x.exists&&(k==='all'||x.kind===k||x.auto_key===k)).map(x=>({customer_id:x.customer_id,title:x.title,type:x.type,due_date:x.due_date,assigned_to:x.sale==='(Chưa gán)'?'':x.sale,auto_key:x.auto_key,priority:x.priority}));
   if(items.length>20&&!confirm(`Thêm ${items.length} việc vào danh sách?`))return;
   const r=await api('/tasks/bulk',{method:'POST',body:{items}});toast('Đã thêm '+r.created+' việc');tasks()}
-function newTask(cid,lid){const mb=$('#modalBody');
+async function newTask(cid,lid){if(!window._tkP)window._tkP=await api('/tasks/people');const P=window._tkP,mb=$('#modalBody');
   mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">Thêm việc</h2><button class="btn" onclick="closeModal()">✕</button></div>
   <div class="grid g2" style="margin-top:12px"><label>Tiêu đề<br><input class="f" id="tTitle" style="width:100%" placeholder="VD: Gọi hỏi nhu cầu tháng này"></label>
   <label>Loại<br><select class="f" id="tType" style="width:100%"><option value="call">Gọi điện</option><option value="visit">Ghé thăm</option><option value="message">Nhắn tin</option><option value="debt">Nhắc công nợ</option><option value="other">Khác</option></select></label>
   <label>Hạn<br><input class="f" type="date" id="tDue" value="${iso(new Date())}" style="width:100%"></label>
-  <label>Giao cho<br><select class="f" id="tWho" style="width:100%"><option value="">(tôi)</option>${state.sales.filter(x=>x!=='(Chưa gán)').map(x=>`<option>${esc(x)}</option>`).join('')}</select></label>
+  ${P.people.length>1?`<label>Giao cho<br><select class="f" id="tWho" style="width:100%">${P.people.map(p=>`<option value="${esc(p.value)}" ${p.value===P.me?'selected':''}>${esc(p.value===P.me?'Tôi ('+p.label+')':p.label)}</option>`).join('')}</select></label>`:''}
   ${cid||lid?'':`<label>Khách (tìm theo tên/SĐT)<br><input class="f" id="tCust" list="custList" style="width:100%" placeholder="gõ để tìm…"><datalist id="custList"></datalist></label>`}</div>
   <div class="row" style="margin-top:12px"><button class="btn primary" id="tSave">Lưu</button></div>`;
   $('#modal').classList.add('open');let pickedId=cid||null;
   const tc=$('#tCust');if(tc){tc.oninput=async()=>{const q=tc.value.trim();if(q.length<2)return;const r=await api('/customers/search?q='+encodeURIComponent(q));$('#custList').innerHTML=r.map(c=>`<option value="${esc(c.name)} [${c.id}]">`).join('')};tc.onchange=()=>{const m=tc.value.match(/\[(\d+)\]$/);pickedId=m?+m[1]:null}}
-  $('#tSave').onclick=async()=>{await api('/tasks',{method:'POST',body:{title:$('#tTitle').value,type:$('#tType').value,due_date:$('#tDue').value,assigned_to:$('#tWho').value,customer_id:pickedId,lead_id:lid||null}});closeModal();toast('Đã thêm việc');if(state.page==='tasks')loadPage()}}
+  $('#tSave').onclick=async()=>{await api('/tasks',{method:'POST',body:{title:$('#tTitle').value,type:$('#tType').value,due_date:$('#tDue').value,assigned_to:($('#tWho')||{}).value||'',customer_id:pickedId,lead_id:lid||null}});closeModal();toast('Đã thêm việc');if(state.page==='tasks')loadPage()}}
 
 // ============================================================================
 // KPI

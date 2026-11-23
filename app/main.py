@@ -15,7 +15,7 @@ from . import config, db, sync, reports, excel, backup, gsheet
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="KiotViet CRM", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
-from .main_auth import (COOKIE, current_user, scope, allowed, is_mgr, is_admin, can, team_names, col_in,  # noqa
+from .main_auth import (COOKIE, current_user, scope, allowed, is_mgr, is_admin, can, team_names, col_in, task_cond,  # noqa
                         PAGES, PERMS, SCOPES, ROLE_DEPT, hash_pw, check_pw, resolve, session_cookie, seed_roles,
                         roles_list, slug, pages_for)
 from . import extras, campaign, events, tools
@@ -247,7 +247,7 @@ def overview(from_d: str = Query(None, alias="from"), to_d: str = Query(None, al
     f, t = _dates(from_d, to_d)
     s = sale_scope(user, sale)
     today = date.today().isoformat()
-    tcond, tp = col_in("assigned_to", scope(user))
+    tcond, tp = task_cond(user, "assigned_to")
     return {"summary": reports.revenue_summary(f, t, s), "birthdays": reports.birthdays(7, s)[:10],
             "journey": reports.order_journey(f, t, s)["funnel"],
             "tasks_today": db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date=? {tcond}", (today,) + tp)["n"],
