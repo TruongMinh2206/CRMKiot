@@ -271,3 +271,18 @@ def _export_campaign(tables, replace):
     log.info("đã xuất thưởng chiến dịch sang Google Sheet")
     return {"title": t_sum, "detail": t_det, "rows": len(tables["summary"]) - 1, "lines": len(tables["detail"]) - 1,
             "url": f"https://docs.google.com/spreadsheets/d/{sid}/edit#gid={gid}"}
+
+
+def read_values(sheet_id, rng):
+    """Đọc một vùng của file Google Sheet bất kỳ đã chia sẻ (quyền Xem là đủ) cho service account."""
+    info = config_account()
+    with _client(_token(info)) as c:
+        r = c.get(f"{API}/{sheet_id}/values/{quote(rng, safe='')}", params={"valueRenderOption": "FORMATTED_VALUE"})
+        if r.status_code == 403:
+            raise ConfigError(f"Chưa chia sẻ file Google Sheet cho {info.get('client_email')} (quyền Xem là đủ).")
+        if r.status_code == 404:
+            raise ConfigError("Không tìm thấy file Google Sheet — kiểm tra lại link.")
+        if r.status_code == 400:
+            raise ConfigError(f"Không đọc được vùng {rng} — kiểm tra tên tab. ({r.text[:150]})")
+        r.raise_for_status()
+        return r.json().get("values", [])
