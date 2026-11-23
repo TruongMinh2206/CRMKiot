@@ -472,6 +472,7 @@ def startup():
     backup.restore_db()      # lấy lại toàn bộ DB nếu ổ đĩa vừa bị xoá
     db.init()
     backup.restore()
+    events.upgrade()
     cd = db.get_meta("churn_days")
     if cd:
         config.CHURN_DAYS = int(cd)

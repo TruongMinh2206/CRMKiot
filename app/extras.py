@@ -522,4 +522,6 @@ def alerts(user=Depends(current_user)):
     if low:
         out.append({"key": "low", "level": "warn", "n": len(low), "href": "#products",
                     "title": "Mặt hàng sắp hết", "note": "tồn còn dưới 14 ngày bán"})
+    from . import events
+    out.extend(events.alerts())
     return out
