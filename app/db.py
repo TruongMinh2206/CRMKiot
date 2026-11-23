@@ -115,14 +115,32 @@ CREATE TABLE IF NOT EXISTS campaign_entries (
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT, place TEXT, hashtag TEXT,
-  phase INTEGER DEFAULT 0, created TEXT, created_by TEXT
+  phase INTEGER DEFAULT 0, created TEXT, created_by TEXT,
+  goal TEXT,               -- mục tiêu chung (1-2 câu)
+  targets TEXT,            -- JSON chỉ tiêu: data_new, buyers, revenue, posts, budget
+  lessons TEXT,            -- bài học rút kinh nghiệm
+  source_id INTEGER        -- nhân bản quy trình từ sự kiện nào
 );
 CREATE TABLE IF NOT EXISTS event_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, tid TEXT, phase INTEGER, dept TEXT, text TEXT,
   off INTEGER DEFAULT 0, custom INTEGER DEFAULT 0, status TEXT DEFAULT 'todo', owner TEXT, note TEXT,
-  updated TEXT, updated_by TEXT
+  updated TEXT, updated_by TEXT,
+  deps TEXT,               -- JSON id các việc phải xong trước (bàn giao từ phòng khác)
+  kpi TEXT,                -- việc phục vụ chỉ tiêu nào
+  gate INTEGER DEFAULT 0,  -- cổng duyệt: chưa xong thì không chuyển bước
+  done_at TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_event_tasks ON event_tasks(event_id);
+CREATE TABLE IF NOT EXISTS event_budget (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, dept TEXT, item TEXT, planned REAL DEFAULT 0,
+  actual REAL DEFAULT 0, note TEXT, updated TEXT, updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_event_budget ON event_budget(event_id);
+CREATE TABLE IF NOT EXISTS event_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, task_id INTEGER, kind TEXT, author TEXT,
+  username TEXT, content TEXT, created TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_event_activity ON event_activity(event_id);
 CREATE TABLE IF NOT EXISTS event_customers (
   id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER, name TEXT, phone TEXT, kind TEXT DEFAULT 'moi',
   sale TEXT, step TEXT DEFAULT 's0', photo TEXT, post TEXT, note TEXT, customer_id INTEGER, history TEXT,
@@ -169,6 +187,12 @@ def init():
         dcols = [r[1] for r in con.execute("PRAGMA table_info(invoice_details)")]
         if "trade_mark" not in dcols:
             con.execute("ALTER TABLE invoice_details ADD COLUMN trade_mark TEXT")
+        for t, adds in (("events", ("goal TEXT", "targets TEXT", "lessons TEXT", "source_id INTEGER")),
+                        ("event_tasks", ("deps TEXT", "kpi TEXT", "gate INTEGER DEFAULT 0", "done_at TEXT"))):
+            have = [r[1] for r in con.execute(f"PRAGMA table_info({t})")]
+            for a in adds:
+                if a.split()[0] not in have:
+                    con.execute(f"ALTER TABLE {t} ADD COLUMN {a}")
         done = con.execute("SELECT value FROM meta WHERE key='slim_v1'").fetchone()
         if not done:
             for t in ("invoices", "products", "orders"):
