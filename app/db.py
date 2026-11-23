@@ -75,7 +75,16 @@ CREATE TABLE IF NOT EXISTS sync_log (
 );
 
 CREATE TABLE IF NOT EXISTS crm_users (
-  username TEXT PRIMARY KEY, password TEXT, role TEXT, sale_name TEXT, display_name TEXT
+  username TEXT PRIMARY KEY, password TEXT, role TEXT, sale_name TEXT, display_name TEXT,
+  dept TEXT,                 -- phòng ban (BGD, SALE, MKT, KT, KHO, HCNS)
+  active INTEGER DEFAULT 1,  -- 0 = đã khoá
+  ver INTEGER DEFAULT 0,     -- tăng khi đổi mật khẩu -> các phiên cũ hết hiệu lực
+  created TEXT, last_login TEXT
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+  code TEXT PRIMARY KEY, name TEXT, pages TEXT, scope TEXT DEFAULT 'own', perms TEXT,
+  builtin INTEGER DEFAULT 0, position INTEGER DEFAULT 99
 );
 
 CREATE TABLE IF NOT EXISTS sale_aliases (alias TEXT PRIMARY KEY, sale_name TEXT);
@@ -187,7 +196,8 @@ def init():
         dcols = [r[1] for r in con.execute("PRAGMA table_info(invoice_details)")]
         if "trade_mark" not in dcols:
             con.execute("ALTER TABLE invoice_details ADD COLUMN trade_mark TEXT")
-        for t, adds in (("events", ("goal TEXT", "targets TEXT", "lessons TEXT", "source_id INTEGER")),
+        for t, adds in (("crm_users", ("dept TEXT", "active INTEGER DEFAULT 1", "ver INTEGER DEFAULT 0", "created TEXT", "last_login TEXT")),
+                        ("events", ("goal TEXT", "targets TEXT", "lessons TEXT", "source_id INTEGER")),
                         ("event_tasks", ("deps TEXT", "kpi TEXT", "gate INTEGER DEFAULT 0", "done_at TEXT"))):
             have = [r[1] for r in con.execute(f"PRAGMA table_info({t})")]
             for a in adds:

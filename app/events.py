@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import db
-from .main_auth import current_user, is_mgr, team_names
+from .main_auth import current_user, is_mgr, is_admin, can, team_names
 
 router = APIRouter(prefix="/api")
 
@@ -89,7 +89,7 @@ def _who(user):
 
 
 def _can_edit(user):
-    return is_mgr(user) or user.get("role") == "lead"
+    return can(user, "event_edit")
 
 
 def _json(v, default):
@@ -216,7 +216,7 @@ def _set_phase(con, eid, b, user):
     if new > old:
         gates = con.execute("""SELECT text FROM event_tasks WHERE event_id=? AND gate=1 AND custom>=0 AND status<>'done'
                                AND phase>=? AND phase<? ORDER BY phase, off""", (eid, old, new)).fetchall()
-        if gates and not (b.get("force") and user.get("role") == "admin"):
+        if gates and not (b.get("force") and is_admin(user)):
             raise HTTPException(400, "Chưa qua cổng duyệt: " + "; ".join(g["text"] for g in gates))
     con.execute("UPDATE events SET phase=? WHERE id=?", (new, eid))
     if new != old:
@@ -262,7 +262,7 @@ async def events_save(request: Request, user=Depends(current_user)):
     eid = b.get("id")
     with db.cursor() as con:
         if eid and b.get("delete"):
-            if user.get("role") != "admin":
+            if not is_admin(user):
                 raise HTTPException(403, "Chỉ quản trị mới xoá được sự kiện")
             for t in ("event_tasks", "event_customers", "event_budget", "event_activity"):
                 con.execute(f"DELETE FROM {t} WHERE event_id=?", (eid,))
@@ -408,7 +408,7 @@ async def event_comment(eid: int, request: Request, user=Depends(current_user)):
             r = con.execute("SELECT username FROM event_activity WHERE id=? AND event_id=? AND kind='comment'", (b["delete"], eid)).fetchone()
             if not r:
                 raise HTTPException(404, "Không tìm thấy trao đổi")
-            if r["username"] != user.get("username") and user.get("role") != "admin":
+            if r["username"] != user.get("username") and not is_admin(user):
                 raise HTTPException(403, "Chỉ xoá được trao đổi của mình")
             con.execute("DELETE FROM event_activity WHERE id=?", (b["delete"],))
             return {"ok": True}
@@ -501,7 +501,7 @@ async def event_customer(eid: int, request: Request, user=Depends(current_user))
         if not old or old["step"] != step:
             hist = (hist + [{"step": step, "at": _now(), "by": _who(user)}])[-30:]
         sale = (merged.get("sale") or "").strip()
-        if not is_mgr(user) and not _visible(user, sale):
+        if not _visible(user, sale):
             raise HTTPException(403, "Chỉ giao được cho sale trong nhóm của bạn")
         vals = ((merged.get("name") or "").strip() or (kv["name"] if kv else ""), phone, kind, sale, step,
                 (merged.get("photo") or "").strip(), (merged.get("post") or "").strip(), (merged.get("note") or "").strip(),
@@ -527,7 +527,7 @@ async def event_import(eid: int, request: Request, user=Depends(current_user)):
     if not isinstance(rows, list) or len(rows) > 3000:
         raise HTTPException(400, "Danh sách không hợp lệ (tối đa 3.000 dòng)")
     idx = _phone_index()
-    mine = None if is_mgr(user) else user.get("sale_name")
+    mine = None if team_names(user) is None else user.get("sale_name")
     added = dup = 0
     with db.cursor() as con:
         have = {norm_phone(r["phone"]) for r in con.execute("SELECT phone FROM event_customers WHERE event_id=?", (eid,)).fetchall()}

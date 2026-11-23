@@ -41,11 +41,19 @@ cp .env.example .env   # rồi sửa .env
 docker compose up -d --build
 ```
 
-## Phân quyền
+## Tài khoản & phân quyền
 
-- **Quản trị** (`.env`): tất cả + tạo tài khoản, bí danh sale.
-- **Kế toán** (tạo ở Cài đặt): xem tất cả báo cáo, xuất Excel, gán sale.
-- **Sale** (tạo ở Cài đặt, chọn tên sale tương ứng): chỉ thấy khách của mình.
+Quản trị tạo tài khoản cho từng người ở **Cài đặt → Tài khoản** (tên đăng nhập, nhóm quyền, phòng ban, tên sale, khoá / mở, đặt lại mật khẩu).
+Mỗi người tự đổi mật khẩu ở góc dưới menu. Tài khoản quản trị gốc nằm trong `.env` (`ADMIN_USER` / `ADMIN_PASSWORD`), dùng để cứu hộ.
+
+Quyền gắn theo **nhóm quyền**, chỉnh ở **Cài đặt → Phân quyền theo nhóm**:
+- **Trang được xem**: tích từng trang trong menu; API của trang không được tích bị chặn ở máy chủ.
+- **Phạm vi dữ liệu theo sale**: *Tất cả* · *Team của mình* (theo Xếp team) · *Chỉ của mình* (theo tên sale của tài khoản).
+- **Thao tác**: quản lý dữ liệu (KPI, gán sale, xếp team, khách sếp, thưởng chiến dịch), điều phối sự kiện, xuất Excel, đồng bộ KiotViet.
+
+Nhóm có sẵn: Quản trị, Ban giám đốc, Kế toán, Trưởng nhóm sale, Sale, Marketing, Kho / Thu mua, HCNS — sửa được, thêm được nhóm mới.
+Đổi quyền, khoá tài khoản có hiệu lực ngay; đổi / đặt lại mật khẩu thì các phiên đăng nhập cũ bị đăng xuất.
+Sai mật khẩu 5 lần liền thì tài khoản bị tạm khoá đăng nhập 5 phút. Mật khẩu lưu dạng băm PBKDF2.
 
 ## Cách CRM xác định "sale phụ trách"
 
