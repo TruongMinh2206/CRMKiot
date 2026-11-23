@@ -26,15 +26,19 @@ html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-
 a{color:var(--brand)}
 button,input,select{font:inherit;color:inherit}
 .app{min-height:100vh}
-/* Menu gọn trong nút hamburger: thanh trên cùng + ngăn kéo trượt từ trái, chỉ hiện khi bấm mở */
-.appbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;height:52px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+/* Máy tính: menu cố định bên trái. Điện thoại (≤760px): menu gọn trong nút hamburger, chỉ hiện khi bấm mở */
+.appbar{display:none;position:sticky;top:0;z-index:40;align-items:center;gap:12px;height:52px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 .appbar .logo{padding:0;font-size:15px}.appbar .mark{width:26px;height:26px}
 .appbar-page{display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-weight:600;padding-left:12px;border-left:1px solid var(--border);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navbtn{padding:8px;line-height:0;min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center}.navbtn .ic{width:20px;height:20px}
-.navscrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:65}.navscrim[hidden]{display:none}
-nav{background:var(--surface);border-right:1px solid var(--border);padding:14px 14px 18px;position:fixed;top:0;left:0;bottom:0;width:min(280px,85vw);overflow-y:auto;z-index:70;display:flex;flex-direction:column;gap:4px;transform:translateX(-100%);visibility:hidden;transition:transform .2s ease-in,visibility 0s linear .2s}
-nav.open{transform:none;visibility:visible;box-shadow:var(--shadow);transition:transform .2s ease-out,visibility 0s}
-.navhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.navhead .logo{padding:4px 8px}
+.navscrim{display:none}
+nav{background:var(--surface);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.navhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.navhead .logo{padding:4px 8px}.navhead .navbtn{display:none}
+@media (min-width:761px){.app{display:grid;grid-template-columns:230px 1fr}}
+@media (max-width:760px){.appbar{display:flex}.navhead .navbtn{display:inline-flex}
+  .navscrim:not([hidden]){display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:65}
+  nav{position:fixed;left:0;bottom:0;height:auto;width:min(280px,85vw);padding:14px 14px 18px;z-index:70;transform:translateX(-100%);visibility:hidden;transition:transform .2s ease-in,visibility 0s linear .2s}
+  nav.open{transform:none;visibility:visible;box-shadow:var(--shadow);transition:transform .2s ease-out,visibility 0s}}
 @media (max-width:520px){.appbar .logo{display:none}.appbar-page{border-left:0;padding-left:0}}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 8px 16px}
 .logo .mark{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800}
@@ -251,19 +255,23 @@ function render(){
   root.innerHTML=`<div class="app"><header class="appbar"><button class="btn navbtn" id="navBtn" aria-label="Mở menu" aria-expanded="false" aria-controls="nav">${ic('menu')}</button>
     <div class="logo"><span class="mark">C</span>CRM KiotViet</div><span class="appbar-page">${ic(cur[2])}${cur[1]}</span></header>
     <div class="navscrim" id="navScrim" hidden></div>
-    <nav id="nav" aria-label="Menu chính" inert><div class="navhead"><div class="logo"><span class="mark">C</span>CRM KiotViet</div><button class="btn navbtn" id="navClose" aria-label="Đóng menu">${ic('x')}</button></div>
+    <nav id="nav" aria-label="Menu chính"><div class="navhead"><div class="logo"><span class="mark">C</span>CRM KiotViet</div><button class="btn navbtn" id="navClose" aria-label="Đóng menu">${ic('x')}</button></div>
     ${pages.map(p=>`<a class="item ${state.page===p[0]?'active':''}" href="#${p[0]}" ${state.page===p[0]?'aria-current="page"':''}>${ic(p[2])}${p[1]}</a>`).join('')}
     <div class="spacer"></div><div class="sync" id="syncbar"></div>
     <div class="user">${esc(state.user.display_name)} · ${ROLE[state.user.role]||state.user.role}<br><a href="#" id="logout">Đăng xuất</a></div></nav>
     <main id="main"></main></div>`;
   $('#logout').onclick=async e=>{e.preventDefault();await api('/logout',{method:'POST'});state.user=null;render()};
   $('#navBtn').onclick=()=>navSet(true);$('#navClose').onclick=()=>navSet(false);$('#navScrim').onclick=()=>navSet(false);
-  document.querySelectorAll('#nav a.item').forEach(a=>a.addEventListener('click',()=>navSet(false)));
+  document.querySelectorAll('#nav a.item').forEach(a=>a.addEventListener('click',()=>navSet(false,false)));navSet(false,false);
   loadPage();refreshSync();
 }
-// Mở / đóng menu: khi đóng thì cả menu "trơ" (không tab tới được), khi mở thì đưa focus vào mục đang xem
-function navSet(open){const n=$('#nav'),b=$('#navBtn');if(!n)return;n.classList.toggle('open',open);n.inert=!open;$('#navScrim').hidden=!open;b.setAttribute('aria-expanded',String(open));
+// Menu hamburger chỉ dùng trên điện thoại. Khi đóng, menu "trơ" (không tab tới được); khi mở, focus vào mục đang xem
+const navMob=matchMedia('(max-width:760px)');
+function navSet(open,focus=true){const n=$('#nav'),b=$('#navBtn');if(!n)return;const mob=navMob.matches;open=open&&mob;
+  n.classList.toggle('open',open);n.inert=mob&&!open;$('#navScrim').hidden=!open;b.setAttribute('aria-expanded',String(open));if(!focus||!mob)return;
   if(open)(n.querySelector('a.item.active')||n.querySelector('a.item')).focus();else if(n.contains(document.activeElement)||document.activeElement===document.body)b.focus()}
+let navWasMob=navMob.matches;const navMode=()=>{if(navMob.matches!==navWasMob){navWasMob=navMob.matches;navSet(false,false)}};
+navMob.addEventListener('change',navMode);addEventListener('resize',navMode);
 function topbar(title,{dates=true,sale=true,extra='',exportKey=null}={}){
   const saleSel=sale&&state.user.role!=='sale'?`<select id="fSale"><option value="">Tất cả sale</option>${state.sales.map(s=>`<option ${s===state.sale?'selected':''}>${esc(s)}</option>`).join('')}</select>`:'';
   const dateIn=dates?`<div class="chips" id="quick">${['Tháng này','Tháng trước','7 ngày','30 ngày','Quý này','Năm nay'].map(q=>`<span class="chip">${q}</span>`).join('')}</div>
