@@ -181,7 +181,18 @@ async def settings_save(request: Request, user=Depends(current_user)):
 # ---------------------------------------------------------------------------
 @app.get("/api/gsheet")
 def gsheet_status(user=Depends(current_user)):
-    return gsheet.status()
+    """Tài khoản Google dùng chung + danh sách các file Google Sheet mà từng chức năng đang kết nối."""
+    s = gsheet.status()
+    s["sa_ok"] = bool(db.get_meta("gsheet_sa"))
+    sid = work._sheet_id
+    s["sheets"] = [{"name": "Xuất bảng doanh số", "id": sid(db.get_meta("gsheet_id") or ""), "access": "Người chỉnh sửa", "where": "Khung “Xuất bảng doanh số” ngay dưới"},
+                   {"name": "Thưởng chiến dịch – đọc dữ liệu", "id": sid(db.get_meta("campaign_gsheet_id") or ""), "access": "Người xem", "where": "Trang Thưởng chiến dịch"},
+                   {"name": "Thưởng chiến dịch – xuất kết quả", "id": sid(db.get_meta("campaign_export_id") or ""), "access": "Người chỉnh sửa", "where": "Trang Thưởng chiến dịch"}]
+    for d in work.depts(False):
+        ls = work.last_sync(d["code"]) or {}
+        s["sheets"].append({"name": f"Giao việc – {d['name']}", "id": d["cfg"].get("sheet_id") or "", "access": "Người xem",
+                            "where": "Giao việc & KPI → KPI → Cài đặt phòng", "error": ls.get("error"), "at": ls.get("at")})
+    return s
 
 
 @app.post("/api/gsheet")

@@ -271,6 +271,7 @@ table{font-size:13px}th{background:var(--surface);color:var(--muted);font-weight
 :root[data-theme="dark"] .wksheet{background:#173524;color:#7fd8a0}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .wksheet{background:#173524;color:#7fd8a0}}
 .wksheetnote{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:0 0 12px}
 .wknames{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}@media (max-width:760px){.wknames{grid-template-columns:1fr}}
+.gsmail{font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:2px 6px;user-select:all;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -1359,19 +1360,31 @@ async function settings(){
   $('#bCat').onclick=async()=>{const mp={};document.querySelectorAll('.cmIn').forEach(sel=>{if(sel.value!=='normal')mp[sel.dataset.tm]=sel.value});await api('/catmap',{method:'POST',body:{map:mp}});toast('Đã lưu nhóm hàng')};
   const gs=await api('/gsheet');
   const ymOpts=(()=>{const o=[];const d=new Date();for(let i=0;i<14;i++){const x=new Date(d.getFullYear(),d.getMonth()-i,1);o.push(x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0'))}return o})();
-  m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Xuất bảng doanh số sang Google Sheet <span class="x">tạo tab mới theo tháng, giữ nguyên bố cục mẫu</span></h3>
-    <p class="small muted">CRM nhân bản tab mẫu rồi điền số của tháng vào. Tab mẫu không bị đụng tới. Cần tạo một service account Google và chia sẻ file Google Sheet cho email của nó với quyền <b>Editor</b>.</p>
+  const gsUrl=id=>'https://docs.google.com/spreadsheets/d/'+encodeURIComponent(id)+'/edit';
+  m.insertAdjacentHTML('beforeend',`<div class="card" style="margin-top:14px"><h3>Tài khoản Google Sheet của CRM <span class="x">dùng chung cho mọi file</span></h3>
+    <p class="small muted">Một tài khoản robot (service account) để CRM đọc / ghi Google Sheet. Mỗi chức năng dùng <b>file riêng</b> — chỉ cần chia sẻ từng file cho email dưới đây (Người xem nếu CRM chỉ đọc, Người chỉnh sửa nếu CRM ghi vào).</p>
+    <div class="kv"><b>Trạng thái</b><span>${gs.sa_ok?'<span class="tag good">Đã nạp tài khoản</span>':'<span class="tag warn">Chưa nạp tài khoản</span>'}</span>
+      <b>Email để chia sẻ</b><span class="small">${gs.client_email?`<code class="gsmail">${esc(gs.client_email)}</code>`:'<span class="muted">chưa nạp file JSON</span>'}</span>
+      <b>File JSON</b><span><textarea id="gSa" placeholder="Dán toàn bộ nội dung file service account (.json) — để trống nếu không đổi" style="width:100%;height:60px;font-family:monospace;font-size:11px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"></textarea></span></div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="bSaSave">Lưu tài khoản</button></div>
+    <div class="tkh2" style="margin-top:16px">Các file Google Sheet đang kết nối</div>
+    <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Chức năng</th><th>File</th><th>CRM cần quyền</th><th>Đổi file ở đâu</th></tr></thead><tbody>
+      ${gs.sheets.map(s=>`<tr><td><b>${esc(s.name)}</b>${s.error?`<div class="small wkwarn">${esc(s.error)}</div>`:s.at?`<div class="small muted">đồng bộ ${dhm(s.at)}</div>`:''}</td><td>${s.id?`<a href="${gsUrl(s.id)}" target="_blank" rel="noopener">mở file</a> <span class="small muted">${esc(s.id.slice(0,10))}…</span>`:'<span class="muted">chưa kết nối</span>'}</td><td>${esc(s.access)}</td><td class="small">${esc(s.where)}</td></tr>`).join('')}
+    </tbody></table></div></div>
+  <div class="card" style="margin-top:14px"><h3>Xuất bảng doanh số sang Google Sheet <span class="x">tạo tab mới theo tháng, giữ nguyên bố cục mẫu</span></h3>
+    <p class="small muted">CRM nhân bản tab mẫu rồi điền số của tháng vào. Tab mẫu không bị đụng tới. Chia sẻ file này cho email tài khoản ở trên với quyền <b>Người chỉnh sửa</b>.</p>
     <div class="kv"><b>Trạng thái</b><span>${gs.configured?'<span class="tag good">Đã cấu hình</span>':'<span class="tag warn">Chưa cấu hình</span>'}</span>
-      <b>Service account</b><span class="small">${gs.client_email?esc(gs.client_email):'<span class="muted">chưa nạp file JSON</span>'}</span>
       <b>ID file Sheet</b><span><input class="f" id="gId" value="${esc(gs.sheet_id)}" placeholder="phần giữa /d/ và /edit trên URL" style="width:360px"></span>
       <b>Tab mẫu</b><span><input class="f" id="gTpl" value="${esc(gs.template)}" placeholder="vd T10.2026 (CRM)" style="width:240px"></span>
-      <b>File JSON</b><span><textarea id="gSa" placeholder="Dán toàn bộ nội dung file service account (.json) — để trống nếu không đổi" style="width:100%;height:70px;font-family:monospace;font-size:11px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"></textarea></span></div>
+</div>
     <div class="row" style="margin-top:10px"><button class="btn" id="bGsSave">Lưu thiết lập</button>
       <select class="f" id="gYm">${ymOpts.map(x=>`<option value="${x}">Tháng ${x.slice(5)}/${x.slice(0,4)}</option>`).join('')}</select>
       <label class="small"><input type="checkbox" id="gRep"> ghi đè nếu tab đã có</label>
       <button class="btn primary" id="bGsGo">Xuất sang Google Sheet</button><span id="gMsg" class="small muted"></span></div></div>`);
-  $('#bGsSave').onclick=async()=>{const b={gsheet_id:$('#gId').value,gsheet_tpl:$('#gTpl').value};const sa=$('#gSa').value.trim();if(sa)b.sa=sa;
+  $('#bGsSave').onclick=async()=>{const b={gsheet_id:$('#gId').value,gsheet_tpl:$('#gTpl').value};
     try{await api('/gsheet',{method:'POST',body:b});toast('Đã lưu');loadPage()}catch(e){toast(String(e.message||e))}};
+  $('#bSaSave').onclick=async()=>{const sa=$('#gSa').value.trim();if(!sa)return toast('Dán nội dung file JSON trước');
+    try{await api('/gsheet',{method:'POST',body:{sa}});toast('Đã lưu tài khoản');loadPage()}catch(e){toast(String(e.message||e))}};
   $('#bGsGo').onclick=async()=>{const b=$('#bGsGo');b.disabled=true;b.textContent='Đang xuất…';$('#gMsg').textContent='';
     try{const r=await api('/gsheet/export',{method:'POST',body:{ym:$('#gYm').value,replace:$('#gRep').checked}});
       $('#gMsg').innerHTML=`Đã tạo tab <b>${esc(r.title)}</b> — <a href="${r.url}" target="_blank">mở sheet</a>`;toast('Đã xuất sang Google Sheet')}
