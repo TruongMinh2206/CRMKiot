@@ -161,6 +161,30 @@ CREATE TABLE IF NOT EXISTS event_customers (
   created TEXT, updated TEXT, updated_by TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_event_customers ON event_customers(event_id);
+
+-- Giao việc nội bộ & KPI theo giờ (app/work.py)
+CREATE TABLE IF NOT EXISTS work_depts (code TEXT PRIMARY KEY, name TEXT, prefix TEXT, active INTEGER DEFAULT 1, cfg TEXT);
+CREATE TABLE IF NOT EXISTS work_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, dept TEXT, title TEXT, note TEXT,
+  assigner TEXT, assignee TEXT,                 -- tên đăng nhập
+  difficulty INTEGER DEFAULT 1, hours REAL DEFAULT 1,
+  assigned_at TEXT, due_at TEXT, accepted_at TEXT, done_at TEXT, approved_at TEXT,
+  status TEXT DEFAULT 'new',                    -- new|doing|revise|review|approved|rejected|paused|stopped
+  good INTEGER DEFAULT 0, revisions INTEGER DEFAULT 0, reason TEXT, link TEXT,
+  source TEXT DEFAULT 'assign',                 -- assign|self|recurring
+  recur_id INTEGER, auto_key TEXT UNIQUE, created_by TEXT, updated TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_work_assignee ON work_items(assignee, status);
+CREATE INDEX IF NOT EXISTS ix_work_dept ON work_items(dept, status);
+CREATE TABLE IF NOT EXISTS work_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, at TEXT, who TEXT, action TEXT, old TEXT, new TEXT, note TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_work_log ON work_log(item_id);
+CREATE TABLE IF NOT EXISTS work_recurring (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, dept TEXT, title TEXT, assigner TEXT, assignee TEXT, difficulty INTEGER DEFAULT 1,
+  hours REAL DEFAULT 1, cycle TEXT, weekday INTEGER, monthday INTEGER, due_time TEXT DEFAULT '23:59', active INTEGER DEFAULT 1,
+  last_on TEXT, created TEXT
+);
 """
 
 

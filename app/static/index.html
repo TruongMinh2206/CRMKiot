@@ -252,6 +252,21 @@ table{font-size:13px}th{background:var(--surface);color:var(--muted);font-weight
 /* nền tối: thanh cuộn và ô chọn theo màu nền tối */
 :root{color-scheme:light}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark}}:root[data-theme="dark"]{color-scheme:dark}
 .modal select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:4px 8px;min-height:30px}
+/* Giao việc & KPI */
+.wkstrip{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:12px}
+.wkbox{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:9px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.wkbox span{font-size:12px;color:var(--muted)}.wkbox b{font-size:19px;font-weight:650;letter-spacing:-.01em}.wkbox small{font-size:11.5px;color:var(--muted)}
+.wkbox.bad b{color:var(--bad-ink)}.wkbox.warn b{color:var(--warn-ink)}.wkbox.good b{color:var(--good-ink)}.wkbox.info b{color:var(--brand)}
+.wkwarn{color:var(--bad-ink)}.tk>.tag{flex:none;min-width:74px;text-align:center}
+.tkn.warn{background:var(--warn-2);color:var(--warn-ink)}
+.wklog{font-size:12.5px;display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto}
+.wkhow{margin-top:14px;font-size:13px;color:var(--text-2)}.wkhow summary{cursor:pointer;font-weight:600}.wkhow ul{margin:8px 0 0;padding-left:20px;line-height:1.6}
+@media (max-width:760px){.tk>.tag{min-width:0}.wkstrip{grid-template-columns:repeat(2,1fr)}}
+.wkboard{grid-template-columns:repeat(4,minmax(220px,1fr))}.wkboard .evcol{max-height:calc(100vh - 290px);min-height:220px}
+.wkcard{gap:7px;cursor:pointer}.wkcard[draggable]{cursor:grab}.wkct{font-weight:500;line-height:1.35;overflow-wrap:anywhere}.wkwho{font-size:12px;font-weight:600;color:var(--brand)}
+.wkcm{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.wkcm .tkdue{min-width:0;text-align:left;font-size:11.5px}.wkempty{padding:10px 4px;text-align:center}
+.wkbar{margin-bottom:12px;gap:8px}.wkbar .chip{display:inline-flex;align-items:center;font:inherit;font-size:12.5px}.wkhint{margin-left:auto}
+@media (max-width:760px){.wkhint{display:none}.wkboard .evcol{max-height:none;min-height:0}}
 </style>
 </head>
 <body>
@@ -306,6 +321,7 @@ const ICONS={
  hash:'<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="m16 3-2 18"/>',
  chevron:'<path d="m9 18 6-6-6-6"/>',
  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ briefcase:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
  tools:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
  external:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
@@ -338,10 +354,10 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 const isAdmin=()=>state.user.role==='admin';
 const can=p=>isAdmin()||(state.user.perms||[]).includes(p);
 const isMgr=()=>can('manage');
-const canPage=k=>k==='tools'||k==='tasks'||(state.user.pages||[]).includes(k);   // Công cụ ngoại vi: mọi tài khoản đều dùng
-const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['tools','Công cụ ngoại vi','tools'],['settings','Cài đặt','settings']];
-const NAV_GROUPS=[['','overview board kpi'],['Khách hàng','sales customers trend leads birthdays debts'],['Công việc','tasks events campaign'],['Hàng hoá & đơn','products journey'],['Hệ thống','tools settings']];
-const PAGE_COLOR={overview:'#1f63e0',board:'#0f9d58',kpi:'#e5484d',sales:'#1f63e0',customers:'#0f9d58',trend:'#12a594',leads:'#8e4ec6',birthdays:'#d6409f',debts:'#e5484d',tasks:'#f76b15',events:'#f76b15',campaign:'#d6409f',products:'#ca8a04',journey:'#12a594',tools:'#6b6d72',settings:'#6b6d72'};
+const canPage=k=>k==='tools'||k==='tasks'||k==='work'||(state.user.pages||[]).includes(k);   // Công cụ ngoại vi: mọi tài khoản đều dùng
+const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['work','Giao việc & KPI','briefcase'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['tools','Công cụ ngoại vi','tools'],['settings','Cài đặt','settings']];
+const NAV_GROUPS=[['','overview board kpi'],['Khách hàng','sales customers trend leads birthdays debts'],['Công việc','tasks work events campaign'],['Hàng hoá & đơn','products journey'],['Hệ thống','tools settings']];
+const PAGE_COLOR={overview:'#1f63e0',board:'#0f9d58',kpi:'#e5484d',sales:'#1f63e0',customers:'#0f9d58',trend:'#12a594',leads:'#8e4ec6',birthdays:'#d6409f',debts:'#e5484d',tasks:'#f76b15',work:'#8e4ec6',events:'#f76b15',campaign:'#d6409f',products:'#ca8a04',journey:'#12a594',tools:'#6b6d72',settings:'#6b6d72'};
 const pgIco=(k,big)=>{const p=PAGES.find(x=>x[0]===k)||[k,k,'overview'];return `<span class="pgi${big?' big':''}" style="--ico:${PAGE_COLOR[k]||'#6b6d72'}" aria-hidden="true">${ic(p[2])}</span>`};
 const navLink=k=>{const p=PAGES.find(x=>x[0]===k);return `<a class="item ${state.page===k?'active':''}" href="#${k}" ${state.page===k?'aria-current="page"':''}>${pgIco(k)}${p[1]}</a>`};
 function navItems(pages){const have=new Set(pages.map(p=>p[0])),done=new Set();
@@ -411,7 +427,7 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // Pages
 // ============================================================================
 async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events,tools}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events,tools,work}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -1007,7 +1023,7 @@ async function accountsDraw(){const el=$('#acct');if(!el)return;const d=await ap
   <div class="card" style="margin-bottom:14px"><h3>Phân quyền theo nhóm <span class="x">tích trang mỗi nhóm được xem · Cài đặt luôn chỉ dành cho Quản trị</span></h3>${rolesMatrix(d)}</div>`;
   let tm;$('#uQ').oninput=x=>{clearTimeout(tm);tm=setTimeout(()=>{state.acctQ=x.target.value;accountsDraw().then(()=>{const i=$('#uQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
   $('#uRole').onchange=x=>{state.acctRole=x.target.value;accountsDraw()}}
-function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>!['settings','tools','tasks'].includes(p[0])),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
+function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>!['settings','tools','tasks','work'].includes(p[0])),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
   const cb=(r,t,k,on,lbl)=>`<td class="rmc"><input type="checkbox" class="rm" data-c="${r.code}" data-t="${t}" data-k="${k}" ${on?'checked':''} ${r.code==='admin'?'disabled':''} aria-label="${esc(r.name)}: ${esc(lbl)}"></td>`;
   const head=`<tr><th>Trang / quyền</th>${R.map(r=>`<th class="rmc">${r.code==='admin'?esc(r.name):`<input class="f rmName" data-c="${r.code}" value="${esc(r.name)}" aria-label="Tên nhóm quyền">`}<div class="small muted" style="font-weight:400">${r.users} tài khoản${r.builtin?'':` · <a href="#" onclick="roleDel('${r.code}');return false">xoá nhóm</a>`}</div></th>`).join('')}</tr>`;
   const pages=P.map(([k,l,i])=>`<tr><td><span class="rml">${ic(i)} ${l}</span></td>${R.map(r=>cb(r,'p',k,r.code==='admin'||r.pages.includes(k),l)).join('')}</tr>`).join('');
@@ -1083,6 +1099,194 @@ async function toolSave(id){const b={id:id||undefined,name:$('#ftlName').value,d
   if(!b.name.trim())return evErr('ftlName','Nhập tên công cụ');if(!/^https?:\/\/\S+$/.test(b.url))return evErr('ftlUrl','Link phải bắt đầu bằng https://');
   await api('/tools',{method:'POST',body:b});closeModal();toast('Đã lưu công cụ');tools()}
 async function toolDel(id){await api('/tools',{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá công cụ');tools()}
+
+// ============================================================================
+// Giao việc & KPI (nội bộ các phòng): làm theo bảng HCNS – Giao việc, Tự tạo việc, Việc định kỳ, Dashboard KPI
+// ============================================================================
+const WK_ST={new:['Mới giao','info'],doing:['Đang làm','warn'],revise:['Cần sửa','bad'],review:['Chờ duyệt','info'],approved:['Đã duyệt','good'],rejected:['Không duyệt','bad'],paused:['Tạm dừng',''],stopped:['Đã dừng','']};
+const WK_OPEN=['new','doing','revise','paused'],WK_END=['approved','rejected','stopped'];
+const WK_LV=['','L1 · Đơn giản','L2 · Cơ bản','L3 · Trung bình','L4 · Phức tạp','L5 · Rất phức tạp'];
+const WK_DAYS=['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'];
+const hv=n=>n==null||n===''?'–':(+n).toLocaleString('vi-VN',{maximumFractionDigits:2});
+const dhm=s=>{if(!s)return '';const [d,t]=s.split('T');return dmy(d).slice(0,5)+(t&&t!=='23:59'?' '+t.slice(0,5):'')};
+const wkName=u=>((state.wkMeta.people.find(p=>p.username===u))||{name:u}).name;
+const wkDept=c=>((state.wkMeta.depts.find(d=>d.code===c))||{name:c}).name;
+const wkTag=s=>`<span class="tag ${WK_ST[s]?WK_ST[s][1]:''}">${WK_ST[s]?WK_ST[s][0]:esc(s)}</span>`;
+const wkDue=it=>{const c=it.due_state==='Quá hạn'||it.due_state==='Trễ hạn'?'bad':it.due_state==='Đến hạn hôm nay'?'warn':'';return `<span class="tkdue ${c}">${it.due_state==='Quá hạn'?'Quá hạn':''}${it.due_state==='Quá hạn'?' · ':''}${dhm(it.due_at)}</span>`};
+
+async function work(){
+  if(!state.wk)state.wk={tab:'mine',f:'open',who:'',period:'month'};
+  const M=state.wkMeta=await api('/work/meta'),me=M.me,S=state.wk;
+  const myDept=M.depts.find(d=>d.code===me.dept&&d.active);
+  const boss=me.assign||me.manage||me.all;
+  const tabs=[['mine','Việc của tôi',myDept],['team',me.manage||me.all?'Việc cả phòng':'Việc tôi giao',boss],['kpi','KPI',myDept||me.manage||me.all],['recur','Việc định kỳ',me.manage||me.all]].filter(t=>t[2]);
+  if(!tabs.length){$('#main').innerHTML=topbar('Giao việc & KPI',{dates:false,sale:false})+`<div class="card empty"><h3 style="justify-content:center">Phòng của bạn chưa dùng giao việc trên CRM</h3><p>Đang bật cho: ${M.depts.filter(d=>d.active).map(d=>esc(d.name)).join(', ')}. Nhờ quản trị kiểm tra <b>Phòng ban</b> trong tài khoản của bạn.</p></div>`;return}
+  if(!tabs.some(t=>t[0]===S.tab))S.tab=tabs[0][0];
+  const extra=(myDept?`<button class="btn" onclick="wkForm(0,1)">＋ Tự tạo việc</button>`:'')+(me.assign?`<button class="btn primary" onclick="wkForm(0,0)">＋ Giao việc</button>`:'');
+  $('#main').innerHTML=topbar('Giao việc & KPI',{dates:false,sale:false,extra})+
+    `<div class="tktabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${S.tab===k}" class="${S.tab===k?'on':''}" onclick="state.wk.tab='${k}';work()">${l}<span class="tkn" id="wkn_${k}" hidden></span></button>`).join('')}</div><div id="wkBody"><div class="empty">Đang tải…</div></div>`;
+  bindTopbar();
+  if(boss)api('/work?state=review&view=team').then(r=>{const n=$('#wkn_team');if(n&&r.items.length){n.hidden=false;n.textContent=r.items.length;n.classList.add('warn')}}).catch(()=>{});
+  ({mine:wkMine,team:wkTeam,kpi:wkKpi,recur:wkRecur}[S.tab])()}
+
+const WK_COLS=[['new','Mới giao','#1f63e0',s=>s==='new'],['doing','Đang làm','#f76b15',s=>['doing','revise','paused'].includes(s)],['review','Chờ duyệt','#8e4ec6',s=>s==='review'],['done','Đã xong · 30 ngày','#0f9d58',s=>WK_END.includes(s)]];
+function wkCard(it,opt={}){const c=it.can,drag=c.work||c.approve;
+  const btn=c.work&&it.status==='new'?`<button class="btn small primary" onclick="event.stopPropagation();evRun(this,()=>wkAct(${it.id},'accept'))">Nhận việc</button>`
+    :c.work&&['doing','revise'].includes(it.status)?`<button class="btn small primary" onclick="event.stopPropagation();wkDone(${it.id})">Hoàn thành</button>`
+    :c.work&&it.status==='paused'?`<button class="btn small" onclick="event.stopPropagation();evRun(this,()=>wkAct(${it.id},'resume'))">Tiếp tục</button>`
+    :c.approve&&it.status==='review'?`<button class="btn small primary" onclick="event.stopPropagation();evRun(this,()=>wkAct(${it.id},'approve'))">Duyệt</button><button class="btn small" onclick="event.stopPropagation();wkReason(${it.id},'revise')">Cần sửa</button>`:'';
+  const st=['revise','paused','rejected','stopped'].includes(it.status)?wkTag(it.status):'';
+  return `<div class="evcard wkcard" data-id="${it.id}" ${drag?'draggable="true"':''} tabindex="0" role="button" aria-label="${esc(it.title)}" onclick="wkOpen(${it.id})" onkeydown="if(event.key==='Enter')wkOpen(${it.id})">
+    <div class="wkct">${esc(it.title)}</div>
+    ${opt.who?`<div class="wkwho">${esc(it.assignee_name)}</div>`:''}
+    <div class="wkcm">${st}<span class="tag">${WK_LV[it.difficulty]?WK_LV[it.difficulty].slice(0,2):''} · ${hv(it.hours)} giờ</span>${wkDue(it)}</div>
+    ${it.status==='revise'&&it.reason?`<div class="small wkwarn">Cần sửa: ${esc(it.reason)}</div>`:''}
+    <div class="small muted">${esc(it.code)} · ${it.source==='self'?'🙋 tự tạo':it.source==='recurring'?'định kỳ':'giao bởi '+esc(it.assigner_name)}${it.link?` · <a href="${esc(it.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">kết quả</a>`:''}</div>
+    ${btn?`<div class="row" style="gap:6px">${btn}</div>`:''}</div>`}
+function wkBoard(items,opt){return `<div class="evboard wkboard">${WK_COLS.map(([k,l,c,fl])=>{const L=items.filter(i=>fl(i.status));
+  return `<div class="evcol" data-drop="wk" data-key="${k}"><div class="evcolh"><i style="background:${c}"></i>${l}<span>${L.length}</span></div><div class="evcolb">${L.map(i=>wkCard(i,opt)).join('')||'<div class="small muted wkempty">Trống</div>'}</div></div>`}).join('')}</div>`}
+function wkFilter(items){return state.wk.late?items.filter(i=>i.due_state==='Quá hạn'):items}
+function wkTools(items){const n=items.filter(i=>i.due_state==='Quá hạn').length;
+  return `<button class="chip ${state.wk.late?'on':''}" onclick="state.wk.late=!state.wk.late;${state.wk.tab==='mine'?'wkMine':'wkTeam'}()">Chỉ việc quá hạn<span class="tkn ${n?'bad':''}">${n}</span></button><span class="small muted wkhint">Kéo thẻ sang cột khác để nhận việc, báo hoàn thành hoặc duyệt.</span>`}
+// Kéo thả: Mới giao → Đang làm = nhận việc · → Chờ duyệt = báo hoàn thành · Chờ duyệt → Đã xong = duyệt, → Đang làm = cần sửa
+function wkMove(id,to){const it=state.wkItems.find(x=>x.id===id);if(!it)return;const s=it.status,c=it.can;
+  if(to==='doing'&&s==='new'&&c.work)return wkAct(id,'accept');
+  if(to==='doing'&&s==='paused'&&c.work)return wkAct(id,'resume');
+  if(to==='doing'&&['review','approved'].includes(s)&&c.approve)return wkReason(id,'revise');
+  if(to==='review'&&['new','doing','revise'].includes(s)&&c.work)return wkDone(id);
+  if(to==='done'&&s==='review'&&c.approve)return wkAct(id,'approve');
+  toast(to==='done'&&c.work&&!c.approve?'Báo hoàn thành trước (kéo sang Chờ duyệt) — quản lý duyệt mới sang Đã xong':to===s||(to==='doing'&&['doing','revise'].includes(s))?'':'Không chuyển việc sang cột này được')}
+function wkDnD(){let dragId=null;
+  document.querySelectorAll('.wkboard .wkcard[draggable]').forEach(c=>{c.addEventListener('dragstart',x=>{dragId=+c.dataset.id;c.classList.add('dragging');x.dataTransfer.effectAllowed='move';try{x.dataTransfer.setData('text/plain',c.dataset.id)}catch(_){}});c.addEventListener('dragend',()=>c.classList.remove('dragging'))});
+  document.querySelectorAll('.wkboard .evcol').forEach(col=>{col.addEventListener('dragover',x=>{x.preventDefault();col.classList.add('over')});col.addEventListener('dragleave',x=>{if(!col.contains(x.relatedTarget))col.classList.remove('over')});
+    col.addEventListener('drop',x=>{x.preventDefault();col.classList.remove('over');const id=dragId||+x.dataTransfer.getData('text/plain');dragId=null;if(id)wkMove(id,col.dataset.key)})})}
+async function wkMine(){const r=await api('/work?view=mine'),s=r.summary;state.wkItems=r.items;
+  const box=(l,v,c='',sub='')=>`<div class="wkbox ${c}"><span>${l}</span><b>${v}</b>${sub?`<small>${sub}</small>`:''}</div>`;
+  $('#wkBody').innerHTML=`<div class="wkstrip">${box('Cần xong hôm nay',s.due_today,s.due_today?'warn':'')}${box('Chưa nhận',s.new,s.new?'info':'',s.workload_new?hv(s.workload_new)+' giờ':'')}${box('Đang làm',s.doing)}${box('Chờ duyệt',s.review)}${box('Quá hạn',s.overdue,s.overdue?'bad':'')}
+    ${box('Workload hôm nay',hv(s.workload_today)+' giờ',s.workload_today>s.khoan_today&&s.khoan_today?'bad':'')}${box('Đã làm hôm nay',hv(s.hours_today)+' / '+hv(s.khoan_today)+' giờ',s.khoan_today&&s.hours_today>=s.khoan_today?'good':'')}${box('Năng lực hôm nay',s.level_today==null?'–':hv(s.level_today))}</div>
+    <p class="tkhelp">Việc mới giao → bấm <b>Nhận việc</b>. Làm xong → <b>Hoàn thành</b> (dán link kết quả) để được tính giờ KPI ngay hôm đó. Sếp giao miệng → <b>＋ Tự tạo việc</b>.</p>`+`<div class="row wkbar">${wkTools(r.items)}</div>`+wkBoard(wkFilter(r.items),{});wkDnD()}
+async function wkTeam(){const M=state.wkMeta,S=state.wk;const r=await api('/work?view=team&who='+encodeURIComponent(S.who||''));state.wkItems=r.items;
+  const ppl=M.people.filter(p=>M.me.all?M.depts.some(d=>d.active&&d.code===p.dept):p.dept===M.me.dept);
+  $('#wkBody').innerHTML=`<div class="row wkbar"><select class="f" aria-label="Lọc theo người" onchange="state.wk.who=this.value;wkTeam()"><option value="">Tất cả mọi người</option>${ppl.map(p=>`<option value="${esc(p.username)}" ${S.who===p.username?'selected':''}>${esc(p.name)}${M.me.all?' · '+esc(wkDept(p.dept)):''}</option>`).join('')}</select>${wkTools(r.items)}</div>`+wkBoard(wkFilter(r.items),{who:1});wkDnD()}
+
+function wkDone(id){const it=state.wkItems.find(x=>x.id===id);
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">Báo hoàn thành</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <p class="small muted" style="margin:6px 0 14px">${esc(it.code)} · ${esc(it.title)} · ${hv(it.hours)} giờ</p>
+  <label class="lb">Link kết quả <span class="muted">(Drive, Docs, bài đăng…)</span><input class="f" id="wkLink" type="url" inputmode="url" value="${esc(it.link||'')}" placeholder="https://"></label>
+  <label class="lb">Ghi chú<input class="f" id="wkNote" placeholder="Không bắt buộc"></label>
+  <button class="btn primary" onclick="evRun(this,()=>wkAct(${id},'done',{link:$('#wkLink').value.trim(),note:$('#wkNote').value}))">${ic('check')} Hoàn thành</button>`);$('#modalBody').style.width='min(520px,100%)'}
+function wkReason(id,a){const it=state.wkItems.find(x=>x.id===id);
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${a==='revise'?'Trả về cần sửa':'Không duyệt'}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <p class="small muted" style="margin:6px 0 14px">${esc(it.code)} · ${esc(it.title)} · ${esc(it.assignee_name)}</p>
+  <label class="lb">Lý do <span class="req" aria-hidden="true">*</span><textarea class="f" id="wkWhy" rows="3" placeholder="${a==='revise'?'Cần sửa gì để duyệt được':'Vì sao không duyệt'}"></textarea></label>
+  ${a==='revise'?'<p class="small muted">Mỗi lần cần sửa trừ 10% điểm thực tế (không trừ KPI giờ).</p>':''}
+  <button class="btn ${a==='revise'?'primary':'danger'}" onclick="evRun(this,()=>{const w=$('#wkWhy').value.trim();if(!w)return evErr('wkWhy','Ghi lý do');return wkAct(${id},'${a}',{reason:w})})">${a==='revise'?'Trả về cần sửa':'Không duyệt'}</button>`);$('#modalBody').style.width='min(520px,100%)'}
+async function wkAct(id,action,extra={}){await api(`/work/${id}/act`,{method:'POST',body:{action,...extra}});
+  closeModal();toast({accept:'Đã nhận việc',done:'Đã báo hoàn thành — chờ duyệt',approve:extra.good?'Đã duyệt – hoàn thành tốt':'Đã duyệt',revise:'Đã trả về cần sửa',reject:'Đã không duyệt',pause:'Đã tạm dừng',resume:'Đã tiếp tục',stop:'Đã dừng việc'}[action]||'Đã lưu');work()}
+
+async function wkOpen(id){const it=state.wkItems.find(x=>x.id===id);if(!it)return;const c=it.can;const log=await api(`/work/${id}/log`).catch(()=>[]);
+  const kv=(k,v)=>v===''||v==null?'':`<b>${k}</b><span>${v}</span>`;
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${esc(it.title)}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <div class="row small" style="margin:8px 0 14px">${wkTag(it.status)} <span class="muted">${esc(it.code)} · ${esc(wkDept(it.dept))}</span></div>
+  <div class="kv">${kv('Người làm',esc(it.assignee_name))}${kv('Người giao',esc(it.assigner_name)+(it.source==='self'?' (tự tạo)':it.source==='recurring'?' (định kỳ)':''))}${kv('Độ khó',esc(WK_LV[it.difficulty]||it.difficulty))}${kv('Thời lượng chuẩn',hv(it.hours)+' giờ')}
+    ${kv('Điểm tiêu chuẩn',hv(it.points_std))}${it.points_real!=null?kv('Điểm thực tế',hv(it.points_real)):''}${kv('Giao lúc',dhm(it.assigned_at))}${kv('Hạn',dhm(it.due_at)+' · '+esc(it.due_state))}${kv('Hoàn thành lúc',dhm(it.done_at))}
+    ${kv('Số lần sửa',it.revisions||'')}${kv('Lý do',esc(it.reason||''))}${kv('Link kết quả',it.link?`<a href="${esc(it.link)}" target="_blank" rel="noopener">${esc(it.link)}</a>`:'')}${kv('Ghi chú',esc(it.note||''))}</div>
+  <div class="row" style="margin-top:14px">${c.work&&it.status==='new'?`<button class="btn primary" onclick="evRun(this,()=>wkAct(${id},'accept'))">Nhận việc</button>`:''}
+    ${c.work&&['doing','revise','new'].includes(it.status)?`<button class="btn primary" onclick="wkDone(${id})">${ic('check')} Hoàn thành</button>`:''}
+    ${c.approve&&it.status==='review'?`<button class="btn primary" onclick="evRun(this,()=>wkAct(${id},'approve'))">Duyệt</button><button class="btn" onclick="evRun(this,()=>wkAct(${id},'approve',{good:true}))">Duyệt – làm tốt (+10%)</button><button class="btn" onclick="wkReason(${id},'revise')">Cần sửa</button><button class="btn danger" onclick="wkReason(${id},'reject')">Không duyệt</button>`:''}
+    ${c.approve&&it.status==='approved'?`<button class="btn" onclick="wkReason(${id},'revise')">Trả về cần sửa</button>`:''}
+    ${c.work&&['new','doing','revise'].includes(it.status)?`<button class="btn" onclick="evRun(this,()=>wkAct(${id},'pause'))">Tạm dừng</button>`:''}
+    ${c.work&&it.status==='paused'?`<button class="btn" onclick="evRun(this,()=>wkAct(${id},'resume'))">Tiếp tục</button>`:''}
+    ${c.edit&&WK_OPEN.includes(it.status)?`<button class="btn" onclick="wkForm(${id})">${ic('pencil')} Sửa</button>`:''}
+    ${c.edit&&[...WK_OPEN,'review'].includes(it.status)?`<button class="btn danger" onclick="$('#wkStop').hidden=false">Dừng việc</button>`:''}</div>
+  <div id="wkStop" class="evconfirm" hidden>Dừng việc này (không tính KPI)? <button class="btn small" onclick="$('#wkStop').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>wkAct(${id},'stop'))">Dừng việc</button></div>
+  ${log.length?`<div class="tkhr"></div><div class="tkh2">Lịch sử</div><div class="wklog">${log.map(l=>`<div><span class="muted">${dhm(l.at)}</span> <b>${esc(l.who_name)}</b> ${esc(l.action)}${l.note?` — ${esc(l.note)}`:''}</div>`).join('')}</div>`:''}`)}
+
+function wkForm(id,self){const M=state.wkMeta,me=M.me,it=id?state.wkItems.find(x=>x.id===id):null;
+  const act=M.depts.filter(d=>d.active).map(d=>d.code);
+  const can=M.people.filter(p=>act.includes(p.dept)&&(me.all||p.dept===me.dept));
+  const d=new Date(Date.now()+864e5);const due=it?it.due_at:`${iso(d)}T17:00`;
+  const giver=M.people.filter(p=>p.username!==me.username);
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${it?'Sửa việc':self?'Tự tạo việc':'Giao việc'}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  ${self?'<p class="small muted" style="margin:6px 0 12px">Việc sếp giao trực tiếp (bằng miệng) hoặc việc bạn tự làm. Vào <b>Đang làm</b> ngay, xong thì báo hoàn thành để quản lý duyệt.</p>':''}
+  <label class="lb" style="margin-top:10px">Tên công việc <span class="req" aria-hidden="true">*</span><input class="f" id="wkT" value="${esc(it?it.title:'')}" placeholder="VD: Đăng 50 tin tuyển dụng sale"></label>
+  ${self?`<label class="lb">Người giao<select class="f" id="wkFrom"><option value="">Tự làm (không ai giao)</option>${giver.map(p=>`<option value="${esc(p.username)}">${esc(p.name)}</option>`).join('')}</select></label>`
+    :`<label class="lb">Người nhận <span class="req" aria-hidden="true">*</span><select class="f" id="wkTo">${it?'':'<option value="">— chọn —</option>'}${can.map(p=>`<option value="${esc(p.username)}" ${it&&it.assignee===p.username?'selected':''}>${esc(p.name)}${me.all?' · '+esc(wkDept(p.dept)):''}</option>`).join('')}</select></label>`}
+  <div class="evgrid"><label class="lb">Độ khó<select class="f" id="wkD">${[1,2,3,4,5].map(n=>`<option value="${n}" ${(it?it.difficulty:2)===n?'selected':''}>${WK_LV[n]}</option>`).join('')}</select></label>
+   <label class="lb">Thời lượng chuẩn (giờ)<input class="f" id="wkH" type="number" inputmode="decimal" min="0.05" step="0.25" value="${it?it.hours:1}"></label></div>
+  <div class="chips" style="margin:-4px 0 10px">${[0.25,0.5,1,2,4,8].map(h=>`<button type="button" class="chip" onclick="$('#wkH').value=${h}">${hv(h)} giờ</button>`).join('')}</div>
+  <label class="lb">Hạn hoàn thành <span class="req" aria-hidden="true">*</span><input class="f" id="wkDue" type="datetime-local" value="${due}"></label>
+  <label class="lb">Ghi chú<input class="f" id="wkN" value="${esc(it?it.note||'':'')}" placeholder="Yêu cầu, link tài liệu…"></label>
+  <p class="small muted">Điểm tiêu chuẩn = độ khó × giờ. KPI tính theo <b>giờ chuẩn</b> này, không theo thời gian làm thực tế.</p>
+  <div class="row"><button class="btn primary" onclick="evRun(this,()=>wkSave(${id||0},${self?1:0}))">${it?'Lưu':self?'Tạo việc':'Giao việc'}</button>${it?`<button class="btn danger" onclick="$('#wkDel').hidden=false">Xoá</button>`:''}</div>
+  ${it?`<div id="wkDel" class="evconfirm" hidden>Xoá hẳn việc này? <button class="btn small" onclick="$('#wkDel').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>wkDelete(${id}))">Xoá</button></div>`:''}`);$('#modalBody').style.width='min(560px,100%)'}
+async function wkSave(id,self){const b={title:$('#wkT').value.trim(),difficulty:+$('#wkD').value,hours:+$('#wkH').value,due_at:$('#wkDue').value,note:$('#wkN').value};
+  if(!b.title)return evErr('wkT','Nhập tên công việc');if(!(b.hours>0))return evErr('wkH','Giờ phải lớn hơn 0');if(!b.due_at)return evErr('wkDue','Chọn hạn');
+  if(id)b.id=id;if(self){b.assignee=state.wkMeta.me.username;b.assigner=$('#wkFrom').value||undefined}else{b.assignee=$('#wkTo').value;if(!b.assignee)return evErr('wkTo','Chọn người nhận')}
+  await api('/work',{method:'POST',body:b});closeModal();toast(id?'Đã lưu':self?'Đã tạo việc':'Đã giao việc');work()}
+async function wkDelete(id){await api('/work',{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá việc');work()}
+
+// KPI / Dashboard
+function wkPeriod(){const S=state.wk,t=new Date(),d=new Date(t);let f,e=t;
+  if(S.period==='week'){const k=(t.getDay()+6)%7;f=new Date(t);f.setDate(t.getDate()-k)}
+  else if(S.period==='month')f=new Date(t.getFullYear(),t.getMonth(),1);
+  else if(S.period==='last'){f=new Date(t.getFullYear(),t.getMonth()-1,1);e=new Date(t.getFullYear(),t.getMonth(),0)}
+  else return [S.from||iso(new Date(t.getFullYear(),t.getMonth(),1)),S.to||iso(t)];
+  return [iso(f),iso(e)]}
+async function wkKpi(){const M=state.wkMeta,S=state.wk,[f,e]=wkPeriod();
+  const depts=M.depts.filter(d=>d.active&&(M.me.all||d.code===M.me.dept));S.dept=S.dept&&depts.some(d=>d.code===S.dept)?S.dept:(depts.find(d=>d.code===M.me.dept)||depts[0]||{}).code;
+  const k=await api(`/work/kpi?dept=${encodeURIComponent(S.dept||'')}&from_d=${f}&to_d=${e}`),c=k.cfg;
+  const rk=r=>r?`<span class="tag ${r==='A'?'good':r==='B'?'info':r==='C'?'warn':'bad'}">${r}</span>`:'–';
+  $('#wkBody').innerHTML=`<div class="row" style="margin-bottom:12px">${depts.length>1?`<select class="f" aria-label="Phòng" onchange="state.wk.dept=this.value;wkKpi()">${depts.map(d=>`<option value="${d.code}" ${d.code===S.dept?'selected':''}>${esc(d.name)}</option>`).join('')}</select>`:''}
+    <div class="chips">${[['week','Tuần này'],['month','Tháng này'],['last','Tháng trước'],['custom','Tuỳ chọn']].map(([p,l])=>`<button class="chip ${S.period===p?'on':''}" onclick="state.wk.period='${p}';wkKpi()">${l}</button>`).join('')}</div>
+    ${S.period==='custom'?`<input type="date" class="f" value="${f}" onchange="state.wk.from=this.value;wkKpi()" aria-label="Từ ngày"> → <input type="date" class="f" value="${e}" onchange="state.wk.to=this.value;wkKpi()" aria-label="Đến ngày">`:''}
+    ${M.me.admin?`<button class="btn small" style="margin-left:auto" onclick="wkCfg('${S.dept}')">${ic('settings')} Cài đặt phòng</button>`:''}</div>
+  <p class="tkhelp">${dmy(k.from)} → ${dmy(k.to)} · <b>${hv(k.days)}</b> ngày làm việc (T7 tính nửa ngày) · khoán ${hv(c.day_hours)} giờ/ngày.${k.manager_view?'':' Bạn đang xem KPI của chính mình.'}</p>
+  ${k.rows.length?`<div class="tablewrap" style="max-height:none"><table><thead><tr><th>Nhân sự</th><th class="r" title="Việc ĐÃ DUYỆT có ngày hoàn thành trong kỳ">Việc đã duyệt</th><th class="r">% đúng hạn</th><th class="r">Quá hạn chưa xong</th><th class="r">Chưa nhận</th><th class="r">Giờ khoán</th><th class="r" title="Giờ chuẩn của việc đã báo hoàn thành (chờ duyệt + đã duyệt)">Giờ đã làm</th><th class="r">KPI năng suất</th><th>Xếp loại</th><th class="r" title="Độ khó trung bình theo giờ">Năng lực</th><th class="r">Điểm tiêu chuẩn</th><th class="r">Điểm thực tế</th></tr></thead>
+    <tbody>${k.rows.map(r=>`<tr><td><b>${esc(r.name)}</b><div class="small muted">${r.manager?'Quản lý':'Nhân viên'}</div></td><td class="r">${r.tasks}</td><td class="r">${r.ontime_pct==null?'–':hv(r.ontime_pct)+'%'}<div class="small muted">${r.ontime} đúng · ${r.late} trễ</div></td>
+      <td class="r ${r.overdue_open?'wkwarn':''}">${r.overdue_open}</td><td class="r">${r.not_accepted}${r.unaccepted_hours?`<div class="small muted">${hv(r.unaccepted_hours)} giờ</div>`:''}</td><td class="r">${hv(r.khoan)}</td>
+      <td class="r"><b>${hv(r.hours_done+r.mgr_hours)}</b>${r.hours_review?`<div class="small muted">${hv(r.hours_review)} chờ duyệt</div>`:''}${r.mgr_hours?`<div class="small muted">+${hv(r.mgr_hours)} giờ quản lý</div>`:''}</td>
+      <td class="r"><b>${r.kpi_pct==null?'–':hv(r.kpi_pct)+'%'}</b></td><td>${rk(r.rank)}</td><td class="r">${r.level==null?'–':hv(r.level)+' · '+r.level_rank}</td><td class="r">${hv(r.points_std)}</td><td class="r">${hv(r.points_real)}</td></tr>`).join('')}</tbody></table></div>`
+    :'<div class="card empty">Chưa có nhân sự nào thuộc phòng này. Quản trị đặt <b>Phòng ban</b> cho tài khoản ở Cài đặt → Tài khoản.</div>'}
+  <details class="wkhow"><summary>Cách tính</summary><ul>
+    <li><b>Giờ đã làm</b> = tổng thời lượng chuẩn của việc đã báo hoàn thành trong kỳ (chờ duyệt + đã duyệt), tính theo ngày báo hoàn thành.</li>
+    <li><b>KPI năng suất</b> = giờ đã làm ÷ giờ khoán. Xếp loại A ≥ 85% · B ≥ 65% · C ≥ 50% · D &lt; 50%. Không trừ vì trễ hạn hay phải sửa.</li>
+    <li><b>Quản lý</b> được cộng ${hv(c.manager_pct)}% × giờ đã làm trung bình của nhân viên trong phòng.</li>
+    <li><b>Việc đã duyệt, % đúng hạn, năng lực, điểm</b> chỉ tính việc ĐÃ DUYỆT. Năng lực = Σ(giờ × độ khó) ÷ Σ giờ (L1–L5).</li>
+    <li><b>Điểm thực tế</b> = độ khó × giờ × hệ số hạn (đúng hạn ${hv(c.late[0])} · trễ ≤ 1 ngày ${hv(c.late[1])} · trễ hơn ${hv(c.late[2])}) × (1 − ${hv(c.revise_pct)}% mỗi lần sửa) × (1 + ${hv(c.bonus_pct)}% nếu hoàn thành tốt).</li></ul></details>`}
+function wkCfg(code){const d=state.wkMeta.depts.find(x=>x.code===code)||{code:'',name:'',prefix:'',active:1,cfg:{}},c=d.cfg;
+  const n=(id,l,v,step='1')=>`<label class="lb">${l}<input class="f" id="${id}" type="number" inputmode="decimal" step="${step}" value="${v}"></label>`;
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">Cài đặt giao việc – ${esc(d.name||'phòng mới')}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <div class="evgrid" style="margin-top:12px"><label class="lb">Mã phòng (khớp Phòng ban của tài khoản)<input class="f" id="wcCode" value="${esc(d.code)}" ${d.code?'readonly':''}></label><label class="lb">Tên<input class="f" id="wcName" value="${esc(d.name)}"></label>
+  <label class="lb">Tiền tố mã việc<input class="f" id="wcPre" value="${esc(d.prefix)}"></label><label class="lb evcheck" style="justify-content:flex-end"><span><input type="checkbox" id="wcOn" ${d.active?'checked':''}> Bật giao việc cho phòng này</span></label>
+  ${n('wcDay','Giờ khoán T2–T6',c.day_hours)}${n('wcSat','Giờ khoán thứ 7',c.sat_hours)}${n('wcMgr','Quản lý cộng (% giờ TB nhân viên)',c.manager_pct)}${n('wcBonus','Hoàn thành tốt cộng (%)',c.bonus_pct)}${n('wcRev','Mỗi lần sửa trừ (%)',c.revise_pct)}
+  <label class="lb">Hệ số hạn: đúng; trễ ≤ 1 ngày; trễ hơn<input class="f" id="wcLate" value="${(c.late||[1,0.8,0.6]).map(hv).join('; ')}"></label><label class="lb">Giờ hạn mặc định<input class="f" id="wcDue" type="time" value="${c.due_time||'23:59'}"></label></div>
+  <div class="row"><button class="btn primary" onclick="evRun(this,wkCfgSave)">Lưu</button><button class="btn" onclick="wkCfg('')">＋ Thêm phòng khác</button></div>`)}
+async function wkCfgSave(){const b={code:$('#wcCode').value.trim(),name:$('#wcName').value.trim(),prefix:$('#wcPre').value.trim(),active:$('#wcOn').checked,
+  cfg:{day_hours:$('#wcDay').value,sat_hours:$('#wcSat').value,manager_pct:$('#wcMgr').value,bonus_pct:$('#wcBonus').value,revise_pct:$('#wcRev').value,late:$('#wcLate').value,due_time:$('#wcDue').value}};
+  if(!b.code)return evErr('wcCode','Nhập mã phòng');await api('/work/depts',{method:'POST',body:b});closeModal();toast('Đã lưu cài đặt');work()}
+
+// Việc định kỳ
+async function wkRecur(){const L=state.wkRecurs=await api('/work/recurring');const cy=r=>r.cycle==='weekly'?'Hằng tuần · '+WK_DAYS[r.weekday||0]:r.cycle==='monthly'?'Hằng tháng · ngày '+r.monthday:'Hằng ngày (T2–T7)';
+  $('#wkBody').innerHTML=`<div class="row" style="margin-bottom:10px"><p class="tkhelp" style="margin:0;flex:1">Mẫu việc lặp lại: CRM tự giao đúng ngày (họp tuần, báo cáo ngày, kiểm tra vệ sinh…). Chủ nhật không sinh việc hằng ngày.</p><button class="btn primary" onclick="wkRForm(0)">＋ Việc định kỳ</button></div>`+
+  (L.length?`<div class="tklist">${L.map(r=>`<div class="tk" ${r.can_edit?`onclick="wkRForm(${r.id})"`:''}><span class="tag ${r.active?'good':''}">${r.active?'Bật':'Tắt'}</span><div class="tkb"><div class="tkt">${esc(r.title)}</div><div class="tkm">DK-${String(r.id).padStart(2,'0')} · ${esc(r.assignee_name)} · giao bởi ${esc(r.assigner_name)} · ${WK_LV[r.difficulty].slice(0,2)} · ${hv(r.hours)} giờ</div></div><div class="tkr"><span class="tkdue">${cy(r)} · hạn ${esc(r.due_time)}</span></div></div>`).join('')}</div>`:'<div class="card empty">Chưa có việc định kỳ.</div>')}
+function wkRForm(id){const M=state.wkMeta,r=id?state.wkRecurs.find(x=>x.id===id):{title:'',assignee:'',assigner:M.me.username,difficulty:2,hours:0.5,cycle:'daily',weekday:0,monthday:1,due_time:'23:59',active:1};
+  const act=M.depts.filter(d=>d.active).map(d=>d.code),can=M.people.filter(p=>act.includes(p.dept)&&(M.me.all||p.dept===M.me.dept));
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${id?'Sửa':'Thêm'} việc định kỳ</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <label class="lb" style="margin-top:12px">Tên công việc <span class="req" aria-hidden="true">*</span><input class="f" id="wrT" value="${esc(r.title)}" placeholder="VD: Báo cáo nhật ký đăng bài của team"></label>
+  <div class="evgrid"><label class="lb">Người nhận<select class="f" id="wrTo"><option value="">— chọn —</option>${can.map(p=>`<option value="${esc(p.username)}" ${p.username===r.assignee?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <label class="lb">Người giao<select class="f" id="wrFrom">${M.people.map(p=>`<option value="${esc(p.username)}" ${p.username===r.assigner?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <label class="lb">Độ khó<select class="f" id="wrD">${[1,2,3,4,5].map(n=>`<option value="${n}" ${r.difficulty===n?'selected':''}>${WK_LV[n]}</option>`).join('')}</select></label>
+  <label class="lb">Thời lượng (giờ)<input class="f" id="wrH" type="number" step="0.25" min="0.05" inputmode="decimal" value="${r.hours}"></label>
+  <label class="lb">Chu kỳ<select class="f" id="wrC" onchange="$('#wrW').closest('label').hidden=this.value!=='weekly';$('#wrM').closest('label').hidden=this.value!=='monthly'">${Object.entries(M.cycles).map(([k,l])=>`<option value="${k}" ${r.cycle===k?'selected':''}>${l}</option>`).join('')}</select></label>
+  <label class="lb" ${r.cycle==='weekly'?'':'hidden'}>Thứ<select class="f" id="wrW">${WK_DAYS.map((d,i)=>`<option value="${i}" ${+r.weekday===i?'selected':''}>${d}</option>`).join('')}</select></label>
+  <label class="lb" ${r.cycle==='monthly'?'':'hidden'}>Ngày trong tháng<input class="f" id="wrM" type="number" min="1" max="31" value="${r.monthday||1}"></label>
+  <label class="lb">Giờ hạn<input class="f" id="wrDue" type="time" value="${r.due_time||'23:59'}"></label></div>
+  <label class="lb evcheck"><input type="checkbox" id="wrOn" ${r.active?'checked':''}> Bật (tự giao việc theo chu kỳ)</label>
+  <div class="row"><button class="btn primary" onclick="evRun(this,()=>wkRSave(${id}))">Lưu</button>${id?`<button class="btn danger" onclick="evRun(this,()=>wkRSave(${id},1))">Xoá mẫu</button>`:''}</div>`);$('#modalBody').style.width='min(600px,100%)'}
+async function wkRSave(id,del){const b=del?{id,delete:true}:{id:id||undefined,title:$('#wrT').value.trim(),assignee:$('#wrTo').value,assigner:$('#wrFrom').value,difficulty:+$('#wrD').value,hours:+$('#wrH').value,cycle:$('#wrC').value,weekday:+$('#wrW').value,monthday:+$('#wrM').value,due_time:$('#wrDue').value,active:$('#wrOn').checked};
+  if(!del){if(!b.title)return evErr('wrT','Nhập tên công việc');if(!b.assignee)return evErr('wrTo','Chọn người nhận')}
+  await api('/work/recurring',{method:'POST',body:b});closeModal();toast(del?'Đã xoá mẫu':'Đã lưu việc định kỳ');work()}
 
 async function settings(){
   const s=await api('/status');const m=$('#main');

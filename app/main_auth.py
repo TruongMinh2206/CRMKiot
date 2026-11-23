@@ -20,19 +20,22 @@ PAGES = ["overview", "board", "tasks", "kpi", "campaign", "events", "leads", "sa
 PERMS = {"manage": "Quản lý dữ liệu: đặt KPI, gán sale, xếp team, khách sếp, sửa thưởng chiến dịch",
          "event_edit": "Điều phối sự kiện: tạo / sửa, chuyển bước, ngân sách, cổng duyệt",
          "task_all": "Xem việc của mọi người (không tích: chỉ thấy việc của mình, trưởng nhóm thấy cả team)",
+         "work_assign": "Giao việc nội bộ cho người khác (trong phòng mình; có quyền xem việc mọi người thì giao cho mọi phòng)",
+         "work_manage": "Quản lý giao việc: xem việc, duyệt việc, việc định kỳ và KPI của cả phòng mình",
          "export": "Xuất Excel",
          "sync": "Đồng bộ và kiểm tra dữ liệu KiotViet"}
 SCOPES = {"all": "Tất cả", "team": "Team của mình", "own": "Chỉ của mình"}
 _ALL = [p for p in PAGES if p != "settings"]
 DEFAULT_ROLES = [   # (mã, tên, trang, phạm vi dữ liệu, quyền thao tác)
     ("admin", "Quản trị", PAGES, "all", list(PERMS)),
-    ("bgd", "Ban giám đốc", _ALL, "all", ["manage", "event_edit", "export", "task_all"]),
+    ("bgd", "Ban giám đốc", _ALL, "all", ["manage", "event_edit", "export", "task_all", "work_assign"]),
     ("accountant", "Kế toán", _ALL, "all", ["manage", "event_edit", "export", "sync"]),
     ("lead", "Trưởng nhóm sale", _ALL, "team", ["event_edit", "export"]),
     ("sale", "Sale", _ALL, "own", ["export"]),
     ("mkt", "Marketing", ["events", "leads", "campaign", "trend", "products"], "all", ["export"]),
     ("kho", "Kho / Thu mua", ["events", "products", "journey"], "all", ["export"]),
     ("hcns", "Hành chính – Nhân sự", ["events", "kpi", "board"], "all", ["export"]),
+    ("head", "Trưởng phòng", ["events"], "all", ["work_assign", "work_manage", "export"]),
 ]
 ROLE_DEPT = {"admin": "BGD", "bgd": "BGD", "accountant": "KT", "lead": "SALE", "sale": "SALE", "mkt": "MKT", "kho": "KHO", "hcns": "HCNS"}
 # API → trang dùng nó; người không có trang nào trong danh sách bị chặn (403). API dùng chung (khách, sale, trạng thái) không chặn.
@@ -145,7 +148,7 @@ def pages_for(path):
     """Các trang được phép gọi API này (None = API dùng chung, không chặn theo trang)."""
     if path.startswith("/api/export/"):
         return {EXPORT_PAGES.get(path[len("/api/export/"):].split("/")[0], "settings")}
-    if path == "/api/tasks" or path.startswith("/api/tasks/"):
+    if path in ("/api/tasks", "/api/work") or path.startswith(("/api/tasks/", "/api/work/")):
         return None                     # việc cá nhân: ai cũng có; mỗi người chỉ thấy việc của mình (xem task_names)
     for prefix, pages in API_PAGES:
         if path == prefix or path.startswith(prefix + "/"):
