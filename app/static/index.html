@@ -163,6 +163,15 @@ label.lb.evcheck,label.evcheck{flex-direction:row;align-items:flex-start;gap:8px
 details summary{cursor:pointer;margin-bottom:8px;font-size:12px}.evdeps{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px 10px;margin-bottom:10px}
 .evdeps fieldset{border:0;margin:0;padding:0}.evdeps legend{padding:6px 0 2px}.evdeps label{padding:3px 0}
 .rmx td.rmc,.rmx th.rmc{text-align:center;min-width:120px}.rmx .rmName{width:130px}.rmx .rml{display:inline-flex;gap:6px;align-items:center}.rmx input[type=checkbox]{width:18px;height:18px;cursor:pointer}
+.toolcat{font-size:14px;font-weight:600;color:var(--text-2);margin:6px 0 8px}
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:18px}
+.toolcard{display:flex;flex-direction:column;padding:0;overflow:hidden;box-shadow:none}.toolcard:hover{border-color:var(--brand)}
+.toolmain{background:none;border:0;text-align:left;padding:14px 16px;display:flex;flex-direction:column;gap:6px;font:inherit;color:inherit;flex:1;border-radius:var(--radius)}
+.toolmain b{font-size:15px}.toolhost{color:var(--brand);display:inline-flex;gap:4px;align-items:center;overflow-wrap:anywhere}
+.toolcard>.btn.small{margin:0 16px 12px;align-self:flex-start}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.toolname{flex:1;min-width:120px;font-size:16px}
+.toolframe{display:block;width:100%;height:calc(100vh - 150px);min-height:480px;border:1px solid var(--border);border-radius:12px;background:#fff}
+@media (max-width:760px){.toolframe{height:calc(100vh - 190px);min-height:420px}}
 .evfs{border:1px solid var(--border);border-radius:10px;padding:10px 12px 12px;margin:0 0 10px}.evfs legend{font-weight:600;font-size:13px;padding:0 6px}
 @media (max-width:760px){.evboard{grid-template-columns:1fr!important;overflow:visible}.evcol{max-height:none}}
 @media (max-width:480px){.evsteps{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -220,6 +229,9 @@ const ICONS={
  hash:'<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="m16 3-2 18"/>',
  chevron:'<path d="m9 18 6-6-6-6"/>',
  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ tools:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+ external:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+ back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
  menu:'<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>'};
 const ic=n=>`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[n]||''}</svg>`;
 async function api(path,opt={}){
@@ -245,8 +257,8 @@ const gridOpt=(money=true,horiz=false)=>horiz?{indexAxis:'y',scales:{y:{grid:{di
 const isAdmin=()=>state.user.role==='admin';
 const can=p=>isAdmin()||(state.user.perms||[]).includes(p);
 const isMgr=()=>can('manage');
-const canPage=k=>(state.user.pages||[]).includes(k);
-const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['settings','Cài đặt','settings']];
+const canPage=k=>k==='tools'||(state.user.pages||[]).includes(k);   // Công cụ ngoại vi: mọi tài khoản đều dùng
+const PAGES=[['overview','Tổng quan','overview'],['board','Bảng doanh số','board'],['tasks','Công việc','tasks'],['kpi','KPI sale','target'],['campaign','Thưởng chiến dịch','gift'],['events','Sự kiện','calendar'],['leads','Khách tiềm năng','lead'],['sales','Khách theo sale','users'],['trend','Biến động KH','trend'],['customers','Doanh số KH','money'],['debts','Công nợ','card'],['products','Hàng nhanh / chậm','box'],['journey','Hành trình đơn','truck'],['birthdays','Sinh nhật KH','cake'],['tools','Công cụ ngoại vi','tools'],['settings','Cài đặt','settings']];
 function render(){
   const root=$('#root');
   if(!state.user){root.innerHTML=`<div class="login"><div class="card"><div class="logo"><span class="mark">C</span>CRM KiotViet</div>
@@ -309,7 +321,7 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // Pages
 // ============================================================================
 async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events,tools}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -905,7 +917,7 @@ async function accountsDraw(){const el=$('#acct');if(!el)return;const d=await ap
   <div class="card" style="margin-bottom:14px"><h3>Phân quyền theo nhóm <span class="x">tích trang mỗi nhóm được xem · Cài đặt luôn chỉ dành cho Quản trị</span></h3>${rolesMatrix(d)}</div>`;
   let tm;$('#uQ').oninput=x=>{clearTimeout(tm);tm=setTimeout(()=>{state.acctQ=x.target.value;accountsDraw().then(()=>{const i=$('#uQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
   $('#uRole').onchange=x=>{state.acctRole=x.target.value;accountsDraw()}}
-function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>p[0]!=='settings'),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
+function rolesMatrix(d){const R=d.roles,P=PAGES.filter(p=>p[0]!=='settings'&&p[0]!=='tools'),pl=k=>(PAGES.find(p=>p[0]===k)||[,k])[1];
   const cb=(r,t,k,on,lbl)=>`<td class="rmc"><input type="checkbox" class="rm" data-c="${r.code}" data-t="${t}" data-k="${k}" ${on?'checked':''} ${r.code==='admin'?'disabled':''} aria-label="${esc(r.name)}: ${esc(lbl)}"></td>`;
   const head=`<tr><th>Trang / quyền</th>${R.map(r=>`<th class="rmc">${r.code==='admin'?esc(r.name):`<input class="f rmName" data-c="${r.code}" value="${esc(r.name)}" aria-label="Tên nhóm quyền">`}<div class="small muted" style="font-weight:400">${r.users} tài khoản${r.builtin?'':` · <a href="#" onclick="roleDel('${r.code}');return false">xoá nhóm</a>`}</div></th>`).join('')}</tr>`;
   const pages=P.map(([k,l,i])=>`<tr><td><span class="rml">${ic(i)} ${l}</span></td>${R.map(r=>cb(r,'p',k,r.code==='admin'||r.pages.includes(k),l)).join('')}</tr>`).join('');
@@ -951,6 +963,35 @@ function pwForm(){evModal(`<div class="row"><h2 style="flex:1;margin:0" id="mTit
   <div class="row"><button class="btn primary" onclick="evRun(this,pwSave)">Đổi mật khẩu</button></div>`)}
 async function pwSave(){const o=$('#pwOld').value,n=$('#pwNew').value;if(!o)return evErr('pwOld','Nhập mật khẩu hiện tại');if(n.length<6)return evErr('pwNew','Mật khẩu mới tối thiểu 6 ký tự');if(n!==$('#pwNew2').value)return evErr('pwNew2','Hai lần nhập chưa khớp');
   await api('/me/password',{method:'POST',body:{old:o,new:n}});closeModal();toast('Đã đổi mật khẩu')}
+
+// ============================================================================
+// Công cụ ngoại vi: công cụ nhỏ chạy ở nơi khác, mở ngay trong CRM (hoặc tab mới nếu trang chặn nhúng)
+// ============================================================================
+const toolHost=u=>{try{return new URL(u).host}catch(e){return ''}};
+const toolCard=t=>`<div class="card toolcard"><button class="toolmain" onclick="toolOpen(${t.id})"><b>${esc(t.name)}</b><span class="small muted">${esc(t.description||'')}</span><span class="small toolhost">${ic(t.embed?'tools':'external')} ${t.embed?'Mở trong CRM':'Mở ở tab mới'} · ${esc(toolHost(t.url))}</span></button>${isAdmin()?`<button class="btn small" onclick="toolForm(${t.id})">Sửa</button>`:''}</div>`;
+async function tools(){const L=await api('/tools');state.tools=L;const cats=[...new Set(L.map(x=>x.category||'Khác'))];
+  $('#main').innerHTML=topbar('Công cụ ngoại vi',{dates:false,sale:false,extra:isAdmin()?'<button class="btn primary" onclick="toolForm()">＋ Thêm công cụ</button>':''})+
+  (L.length?cats.map(c=>`<h2 class="toolcat">${esc(c)}</h2><div class="toolgrid">${L.filter(x=>(x.category||'Khác')===c).map(toolCard).join('')}</div>`).join('')
+   :`<div class="card empty"><h3 style="justify-content:center">Chưa có công cụ nào</h3>${isAdmin()?'<button class="btn primary" onclick="toolForm()">＋ Thêm công cụ</button>':'<p>Nhờ quản trị thêm công cụ.</p>'}</div>`)}
+function toolOpen(id){const t=(state.tools||[]).find(x=>x.id===id);if(!t)return;if(!t.embed){window.open(t.url,'_blank','noopener');return}
+  $('#main').innerHTML=`<div class="toolbar"><button class="btn" onclick="tools()">${ic('back')} Tất cả công cụ</button><b class="toolname">${esc(t.name)}</b><a class="btn" href="${esc(t.url)}" target="_blank" rel="noopener">${ic('external')} Mở tab mới</a></div>
+  <iframe class="toolframe" src="${esc(t.url)}" title="${esc(t.name)}" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  <p class="small muted">Khung trống hoặc báo lỗi? Một số trang không cho mở bên trong trang khác — bấm “Mở tab mới”.</p>`;window.scrollTo(0,0)}
+function toolForm(id){const t=id?state.tools.find(x=>x.id===id):{name:'',description:'',url:'https://',embed:1,category:'',position:(state.tools||[]).length};if(!t)return;
+  const cats=[...new Set((state.tools||[]).map(x=>x.category).filter(Boolean))];
+  evModal(`<div class="row"><h2 style="flex:1;margin:0" id="mTitle">${id?'Sửa công cụ':'Thêm công cụ'}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <label class="lb">Tên công cụ <span class="req" aria-hidden="true">*</span><input class="f" id="ftlName" value="${esc(t.name)}" placeholder="Ghép thư mời"></label>
+  <label class="lb">Mô tả ngắn<input class="f" id="ftlDesc" value="${esc(t.description||'')}" placeholder="Dùng để làm gì, ai dùng"></label>
+  <label class="lb">Link <span class="req" aria-hidden="true">*</span><input class="f" id="ftlUrl" type="url" inputmode="url" value="${esc(t.url)}" spellcheck="false"></label>
+  <div class="evgrid"><label class="lb">Nhóm<input class="f" id="ftlCat" list="toolCats" value="${esc(t.category||'')}" placeholder="Sự kiện, Nội bộ, Tiện ích…"><datalist id="toolCats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></label>
+   <label class="lb">Thứ tự hiển thị<input class="f" id="ftlPos" type="number" inputmode="numeric" value="${t.position||0}"></label></div>
+  <label class="lb evcheck"><input type="checkbox" id="ftlEmbed" ${t.embed?'checked':''}> Mở ngay trong CRM <span class="muted">(bỏ tích nếu trang báo lỗi khi mở bên trong — sẽ mở ở tab mới)</span></label>
+  <div class="row"><button class="btn primary" onclick="evRun(this,()=>toolSave(${id||0}))">Lưu</button>${id?'<button class="btn danger" onclick="$(\'#evDelTl\').hidden=false">Xoá</button>':''}</div>
+  ${id?`<div id="evDelTl" class="evconfirm" hidden>Xoá công cụ này khỏi danh sách? (Không ảnh hưởng tới trang gốc) <button class="btn small" onclick="$('#evDelTl').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>toolDel(${id}))">Xoá</button></div>`:''}`)}
+async function toolSave(id){const b={id:id||undefined,name:$('#ftlName').value,description:$('#ftlDesc').value,url:$('#ftlUrl').value.trim(),category:$('#ftlCat').value,position:+$('#ftlPos').value||0,embed:$('#ftlEmbed').checked};
+  if(!b.name.trim())return evErr('ftlName','Nhập tên công cụ');if(!/^https?:\/\/\S+$/.test(b.url))return evErr('ftlUrl','Link phải bắt đầu bằng https://');
+  await api('/tools',{method:'POST',body:b});closeModal();toast('Đã lưu công cụ');tools()}
+async function toolDel(id){await api('/tools',{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá công cụ');tools()}
 
 async function settings(){
   const s=await api('/status');const m=$('#main');

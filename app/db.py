@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS crm_users (
   created TEXT, last_login TEXT
 );
 
+CREATE TABLE IF NOT EXISTS tools (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT, url TEXT, embed INTEGER DEFAULT 1,
+  category TEXT, position INTEGER DEFAULT 0, created TEXT, updated TEXT, updated_by TEXT
+);
+
 CREATE TABLE IF NOT EXISTS roles (
   code TEXT PRIMARY KEY, name TEXT, pages TEXT, scope TEXT DEFAULT 'own', perms TEXT,
   builtin INTEGER DEFAULT 0, position INTEGER DEFAULT 99
