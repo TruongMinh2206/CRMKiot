@@ -26,16 +26,21 @@ DEFAULT_TOOLS = [   # (tên, mô tả, link, mở trong CRM, nhóm)
     ("Báo cáo kênh TikTok", "Tự tổng hợp kết quả các kênh TikTok của công ty",
      "https://script.google.com/macros/s/AKfycbxrHtzfIGo3YJaQoVsNKURwRvpIv6T4Qaa1oz1_DyXL64Ggsxol4Wfj3YNKqPJdkkzO/exec", 0, "Marketing"),
 ]
+# Công cụ làm ngay trong CRM (link dạng crm:...) — tự thêm vào danh sách nếu chưa có
+INTERNAL_TOOLS = [("Đặt lịch phòng họp", "Xem phòng nào đang trống, đặt lịch họp, không lo trùng giờ", "crm:phong-hop", 1, "Nội bộ")]
+INTERNAL_URLS = {u for _, _, u, _, _ in INTERNAL_TOOLS}
 
 
 def seed():
-    """Lần đầu (bảng trống) nạp sẵn các công cụ đang dùng."""
+    """Lần đầu (bảng trống) nạp sẵn các công cụ đang dùng; công cụ nội bộ mới thì thêm vào cả khi đã có danh sách."""
     with db.cursor() as con:
-        if con.execute("SELECT COUNT(*) FROM tools").fetchone()[0]:
-            return
         now = datetime.now().isoformat(timespec="seconds")
-        con.executemany("INSERT INTO tools(name,description,url,embed,category,position,created,updated) VALUES(?,?,?,?,?,?,?,?)",
-                        [(n, d, u, e, c, i, now, now) for i, (n, d, u, e, c) in enumerate(DEFAULT_TOOLS)])
+        if not con.execute("SELECT COUNT(*) FROM tools").fetchone()[0]:
+            con.executemany("INSERT INTO tools(name,description,url,embed,category,position,created,updated) VALUES(?,?,?,?,?,?,?,?)",
+                            [(n, d, u, e, c, i, now, now) for i, (n, d, u, e, c) in enumerate(DEFAULT_TOOLS)])
+        for n, d, u, e, c in INTERNAL_TOOLS:
+            if not con.execute("SELECT 1 FROM tools WHERE url=?", (u,)).fetchone():
+                con.execute("INSERT INTO tools(name,description,url,embed,category,position,created,updated) VALUES(?,?,?,?,?,-1,?,?)", (n, d, u, e, c, now, now))
 
 
 @router.get("/tools")
@@ -56,7 +61,7 @@ async def tools_save(request: Request, user=Depends(current_user)):
         name, url = (b.get("name") or "").strip(), (b.get("url") or "").strip()
         if not name:
             raise HTTPException(400, "Nhập tên công cụ")
-        if not re.fullmatch(r"https?://[^\s<>\"']+", url):
+        if url not in INTERNAL_URLS and not re.fullmatch(r"https?://[^\s<>\"']+", url):
             raise HTTPException(400, "Link phải bắt đầu bằng https:// (hoặc http://)")
         try:
             pos = int(b.get("position") or 0)

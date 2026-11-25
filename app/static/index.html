@@ -272,6 +272,29 @@ table{font-size:13px}th{background:var(--surface);color:var(--muted);font-weight
 .wksheetnote{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:0 0 12px}
 .wknames{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}@media (max-width:760px){.wknames{grid-template-columns:1fr}}
 .gsmail{font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:2px 6px;user-select:all;overflow-wrap:anywhere}
+/* Lịch phòng họp */
+.rmstatus{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:12px}
+.rmst{display:flex;gap:10px;align-items:flex-start;text-align:left;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:10px 12px;font:inherit;color:inherit;cursor:pointer}
+.rmst[aria-pressed="true"]{border-color:var(--c);box-shadow:0 0 0 1px var(--c)}.rmst>i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--c);margin-top:5px}
+.rmst>span{display:flex;flex-direction:column;gap:2px;min-width:0}.rmfree{color:var(--good-ink)}
+.rmnav{margin-bottom:10px;gap:8px}.rmnav .btn.icon{min-width:32px;justify-content:center}.rmhint{margin-left:auto}
+.rmgrid{display:grid;grid-template-columns:52px repeat(7,minmax(0,1fr));border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.rmcorner,.rmhead{padding:8px 6px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--surface-2);text-align:center}
+.rmhead.today{color:var(--brand);font-weight:600}.rmhead b{font-weight:600}
+.rmtimes{position:relative;height:var(--h);border-right:1px solid var(--border)}.rmtimes span{position:absolute;right:6px;transform:translateY(-50%);font-size:11px;color:var(--muted)}.rmtimes span:first-child{transform:none}
+.rmday{position:relative;height:var(--h);border-left:1px solid var(--border);cursor:copy;background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 43px,var(--border) 43px,var(--border) 44px)}
+.rmday:first-of-type{border-left:0}.rmday.today{background-color:color-mix(in srgb,var(--brand) 4%,transparent)}.rmday.past{cursor:default;background-color:color-mix(in srgb,var(--text) 3%,transparent)}
+.rmbk{position:absolute;display:flex;flex-direction:column;gap:1px;overflow:hidden;text-align:left;padding:3px 6px;border:0;border-left:3px solid var(--c);border-radius:6px;background:color-mix(in srgb,var(--c) 14%,var(--surface));color:var(--text);font:inherit;font-size:11.5px;line-height:1.25;cursor:pointer}
+.rmbk b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rmbk span{color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rmbk.mine{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 50%,transparent)}.rmbk:hover{background:color-mix(in srgb,var(--c) 24%,var(--surface))}
+.rmnow{position:absolute;left:0;right:0;height:2px;background:var(--bad);pointer-events:none}.rmnow::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--bad)}
+.rmlist{display:none}.rmld{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:8px;overflow:hidden}
+.rmldh{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface-2);font-weight:600;font-size:13px}.rmldh.today{color:var(--brand)}
+.rmli{display:flex;gap:12px;width:100%;text-align:left;padding:10px 12px;border:0;border-top:1px solid var(--border);border-left:3px solid var(--c);background:none;font:inherit;color:inherit;cursor:pointer}
+.rmli>span:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}.rmtime{flex:none;font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-2);line-height:1.4}.rmempty{padding:10px 12px}
+.rmbusy{background:var(--surface-2);border-radius:8px;padding:8px 10px;margin-bottom:10px;line-height:1.5}.rmdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c);margin-right:6px}
+.rmroom{display:grid;grid-template-columns:1fr 90px 130px auto auto auto;gap:8px;align-items:center;margin-bottom:8px}
+@media (max-width:760px){.rmgrid,.rmhint{display:none}.rmlist{display:block}.rmroom{grid-template-columns:1fr 1fr}.rmroom input[data-k="name"]{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -1078,14 +1101,14 @@ async function pwSave(){const o=$('#pwOld').value,n=$('#pwNew').value;if(!o)retu
 // ============================================================================
 // Công cụ ngoại vi: công cụ nhỏ chạy ở nơi khác, mở ngay trong CRM (hoặc tab mới nếu trang chặn nhúng)
 // ============================================================================
-const toolHost=u=>{try{return new URL(u).host}catch(e){return ''}};
+const toolHost=u=>{if(/^crm:/.test(u))return 'công cụ của CRM';try{return new URL(u).host}catch(e){return ''}};
 const TOOL_CAT={'Nội bộ':['heart','#d6409f'],'Sự kiện':['calendar','#f76b15'],'Tiện ích':['link','#1f63e0'],'Marketing':['trend','#8e4ec6'],'Tài liệu':['note','#12a594']};
-const toolCard=t=>{const [i,c]=TOOL_CAT[t.category]||['tools','#6b6d72'];return `<div class="card toolcard"><button class="toolmain" onclick="toolOpen(${t.id})"><span class="pgi big" style="--ico:${c}" aria-hidden="true">${ic(i)}</span><b>${esc(t.name)}</b><span class="small muted">${esc(t.description||'')}</span><span class="small toolhost">${ic(t.embed?'arrow':'external')} ${t.embed?'Mở trong CRM':'Mở ở tab mới'} · ${esc(toolHost(t.url))}</span></button>${isAdmin()?`<button class="btn small icon tooledit" onclick="toolForm(${t.id})" aria-label="Sửa ${esc(t.name)}" title="Sửa">${ic('more')}</button>`:''}</div>`};
+const toolCard=t=>{const [i,c]=t.url==='crm:phong-hop'?['calendar','#0f9d58']:TOOL_CAT[t.category]||['tools','#6b6d72'];return `<div class="card toolcard"><button class="toolmain" onclick="toolOpen(${t.id})"><span class="pgi big" style="--ico:${c}" aria-hidden="true">${ic(i)}</span><b>${esc(t.name)}</b><span class="small muted">${esc(t.description||'')}</span><span class="small toolhost">${ic(t.embed?'arrow':'external')} ${t.embed?'Mở trong CRM':'Mở ở tab mới'} · ${esc(toolHost(t.url))}</span></button>${isAdmin()?`<button class="btn small icon tooledit" onclick="toolForm(${t.id})" aria-label="Sửa ${esc(t.name)}" title="Sửa">${ic('more')}</button>`:''}</div>`};
 async function tools(){const L=await api('/tools');state.tools=L;const cats=[...new Set(L.map(x=>x.category||'Khác'))];
   $('#main').innerHTML=topbar('Công cụ ngoại vi',{dates:false,sale:false,extra:isAdmin()?'<button class="btn primary" onclick="toolForm()">＋ Thêm công cụ</button>':''})+
   (L.length?cats.map(c=>`<h2 class="toolcat">${esc(c)}</h2><div class="toolgrid">${L.filter(x=>(x.category||'Khác')===c).map(toolCard).join('')}</div>`).join('')
    :`<div class="card empty"><h3 style="justify-content:center">Chưa có công cụ nào</h3>${isAdmin()?'<button class="btn primary" onclick="toolForm()">＋ Thêm công cụ</button>':'<p>Nhờ quản trị thêm công cụ.</p>'}</div>`)}
-function toolOpen(id){const t=(state.tools||[]).find(x=>x.id===id);if(!t)return;if(!t.embed){window.open(t.url,'_blank','noopener');return}
+function toolOpen(id){const t=(state.tools||[]).find(x=>x.id===id);if(!t)return;if(/^crm:/.test(t.url)){(INTERNAL_TOOLS[t.url]||(()=>toast('Công cụ này chưa có trên bản CRM đang chạy')))(t);return}if(!t.embed){window.open(t.url,'_blank','noopener');return}
   $('#main').innerHTML=`<div class="toolbar"><button class="btn" onclick="tools()">${ic('back')} Tất cả công cụ</button><b class="toolname">${esc(t.name)}</b><a class="btn" href="${esc(t.url)}" target="_blank" rel="noopener">${ic('external')} Mở tab mới</a></div>
   <iframe class="toolframe" src="${esc(t.url)}" title="${esc(t.name)}" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>
   <p class="small muted">Khung trống hoặc báo lỗi? Một số trang không cho mở bên trong trang khác — bấm “Mở tab mới”.</p>`;window.scrollTo(0,0)}
@@ -1101,7 +1124,7 @@ function toolForm(id){const t=id?state.tools.find(x=>x.id===id):{name:'',descrip
   <div class="row"><button class="btn primary" onclick="evRun(this,()=>toolSave(${id||0}))">Lưu</button>${id?'<button class="btn danger" onclick="$(\'#evDelTl\').hidden=false">Xoá</button>':''}</div>
   ${id?`<div id="evDelTl" class="evconfirm" hidden>Xoá công cụ này khỏi danh sách? (Không ảnh hưởng tới trang gốc) <button class="btn small" onclick="$('#evDelTl').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>toolDel(${id}))">Xoá</button></div>`:''}`)}
 async function toolSave(id){const b={id:id||undefined,name:$('#ftlName').value,description:$('#ftlDesc').value,url:$('#ftlUrl').value.trim(),category:$('#ftlCat').value,position:+$('#ftlPos').value||0,embed:$('#ftlEmbed').checked};
-  if(!b.name.trim())return evErr('ftlName','Nhập tên công cụ');if(!/^https?:\/\/\S+$/.test(b.url))return evErr('ftlUrl','Link phải bắt đầu bằng https://');
+  if(!b.name.trim())return evErr('ftlName','Nhập tên công cụ');if(!/^https?:\/\/\S+$/.test(b.url)&&!INTERNAL_TOOLS[b.url])return evErr('ftlUrl','Link phải bắt đầu bằng https://');
   await api('/tools',{method:'POST',body:b});closeModal();toast('Đã lưu công cụ');tools()}
 async function toolDel(id){await api('/tools',{method:'POST',body:{id,delete:true}});closeModal();toast('Đã xoá công cụ');tools()}
 
@@ -1313,6 +1336,91 @@ function wkRForm(id){const M=state.wkMeta,r=id?state.wkRecurs.find(x=>x.id===id)
 async function wkRSave(id,del){const b=del?{id,delete:true}:{id:id||undefined,title:$('#wrT').value.trim(),assignee:$('#wrTo').value,assigner:$('#wrFrom').value,difficulty:+$('#wrD').value,hours:+$('#wrH').value,cycle:$('#wrC').value,weekday:+$('#wrW').value,monthday:+$('#wrM').value,due_time:$('#wrDue').value,active:$('#wrOn').checked};
   if(!del){if(!b.title)return evErr('wrT','Nhập tên công việc');if(!b.assignee)return evErr('wrTo','Chọn người nhận')}
   await api('/work/recurring',{method:'POST',body:b});closeModal();toast(del?'Đã xoá mẫu':'Đã lưu việc định kỳ');work()}
+
+// ============================================================================
+// Đặt lịch phòng họp (công cụ nội bộ trong Công cụ ngoại vi, link crm:phong-hop)
+// ============================================================================
+const RM_H0=7,RM_H1=20,RM_PX=44;                 // lưới giờ 7:00–20:00, 44px mỗi giờ
+const RM_WD=['T2','T3','T4','T5','T6','T7','CN'];
+const rmMin=s=>+s.slice(11,13)*60+ +s.slice(14,16);
+const rmHM=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const rmWeekOf=d=>{const a=new Date(d+'T00:00'),k=(a.getDay()+6)%7;a.setDate(a.getDate()-k);return [...Array(7)].map((_,i)=>{const x=new Date(a);x.setDate(a.getDate()+i);return iso(x)})};
+const rmRoom=id=>(state.rmData.rooms.find(r=>r.id===id))||{name:'?',color:'#6b6d72'};
+const INTERNAL_TOOLS={'crm:phong-hop':t=>roomsPage(t)};
+
+async function roomsPage(t){if(t)state.rmTool=t;state.rm=state.rm||{day:iso(new Date()),room:''};await rmLoad()}
+async function rmLoad(){const D=rmWeekOf(state.rm.day);state.rmData=await api(`/rooms?from_d=${D[0]}&to_d=${D[6]}`);rmDraw(D)}
+function rmWeek(n){const S=state.rm;if(!n)S.day=iso(new Date());else{const a=new Date(S.day+'T00:00');a.setDate(a.getDate()+7*n);S.day=iso(a)}rmLoad()}
+function rmLanes(L){const ends=[];return L.map(b=>{const s=rmMin(b.start_at);let k=ends.findIndex(e=>e<=s);if(k<0){k=ends.length;ends.push(0)}ends[k]=rmMin(b.end_at);return [b,k]}).map((x,_,all)=>[...x,ends.length])}
+function rmDraw(D){const d=state.rmData,S=state.rm,R=d.rooms.filter(r=>r.active),today=d.now.slice(0,10),nowM=rmMin(d.now);
+  const B=d.bookings.filter(b=>!S.room||b.room_id===+S.room);
+  const day=x=>B.filter(b=>b.start_at.slice(0,10)===x);
+  const block=([b,k,n])=>{const s=Math.max(rmMin(b.start_at),RM_H0*60),e=Math.min(rmMin(b.end_at),RM_H1*60),c=rmRoom(b.room_id).color;if(e<=s)return '';
+    return `<button class="rmbk${b.mine?' mine':''}" style="--c:${c};top:${(s-RM_H0*60)/60*RM_PX}px;height:${Math.max(20,(e-s)/60*RM_PX-2)}px;left:calc(${k}*100%/${n} + 2px);width:calc(100%/${n} - 4px)" onclick="event.stopPropagation();rmOpen(${b.id})" title="${esc(b.title)} · ${b.start_at.slice(11)}–${b.end_at.slice(11)} · ${esc(rmRoom(b.room_id).name)} · ${esc(b.booked_name)}"><b>${esc(b.title)}</b><span>${b.start_at.slice(11)}–${b.end_at.slice(11)}${S.room?'':' · '+esc(rmRoom(b.room_id).name)}</span></button>`};
+  const hours=[...Array(RM_H1-RM_H0+1)].map((_,i)=>RM_H0+i);
+  $('#main').innerHTML=`<div class="toolbar"><button class="btn" onclick="tools()">${ic('back')} Tất cả công cụ</button><b class="toolname">${esc((state.rmTool||{}).name||'Đặt lịch phòng họp')}</b>
+      ${d.admin?`<button class="btn" onclick="rmRooms()">${ic('settings')} Quản lý phòng</button>`:''}<button class="btn primary" onclick="rmForm(0)">＋ Đặt phòng</button></div>
+    <div class="rmstatus">${R.map(r=>`<button class="rmst" style="--c:${r.color}" onclick="state.rm.room=state.rm.room==${r.id}?'':'${r.id}';rmDraw(rmWeekOf(state.rm.day))" aria-pressed="${S.room==r.id}"><i></i><span><span><b>${esc(r.name)}</b>${r.capacity?` <span class="muted small">· ${r.capacity} chỗ</span>`:''}</span>
+      <span class="small ${r.busy?'wkwarn':'rmfree'}">${r.busy?`Đang họp: ${esc(r.busy.title)} · đến ${r.busy.end_at.slice(11)}`:'Đang trống'+(r.next?` · ${r.next.start_at.slice(11)} có họp`:' cả hôm nay')}</span></span></button>`).join('')||'<div class="muted">Chưa có phòng nào — quản trị bấm “Quản lý phòng” để thêm.</div>'}</div>
+    <div class="row rmnav"><button class="btn small icon" onclick="rmWeek(-1)" aria-label="Tuần trước">‹</button><button class="btn small" onclick="rmWeek(0)">Tuần này</button><button class="btn small icon" onclick="rmWeek(1)" aria-label="Tuần sau">›</button>
+      <b>${dmy(D[0]).slice(0,5)} – ${dmy(D[6])}</b>${S.room?`<span class="tag">${esc(rmRoom(+S.room).name)} <a href="#" onclick="state.rm.room='';rmDraw(rmWeekOf(state.rm.day));return false" aria-label="Xem mọi phòng">✕</a></span>`:''}
+      <span class="small muted rmhint">Bấm vào ô trống trên lịch để đặt nhanh giờ đó.</span></div>
+    <div class="rmgrid" style="--h:${(RM_H1-RM_H0)*RM_PX}px"><div class="rmcorner"></div>${D.map((x,i)=>`<div class="rmhead${x===today?' today':''}">${RM_WD[i]} <b>${x.slice(8)}/${x.slice(5,7)}</b></div>`).join('')}
+      <div class="rmtimes">${hours.map(h=>`<span style="top:${(h-RM_H0)*RM_PX}px">${h}:00</span>`).join('')}</div>
+      ${D.map(x=>`<div class="rmday${x===today?' today':''}${x<today?' past':''}" onclick="rmSlot(event,'${x}')">${rmLanes(day(x)).map(block).join('')}${x===today&&nowM>=RM_H0*60&&nowM<=RM_H1*60?`<div class="rmnow" style="top:${(nowM-RM_H0*60)/60*RM_PX}px"></div>`:''}</div>`).join('')}</div>
+    <div class="rmlist">${D.map((x,i)=>{const L=day(x);return `<div class="rmld"><div class="rmldh${x===today?' today':''}">${RM_WD[i]} ${x.slice(8)}/${x.slice(5,7)}${x>=today?`<button class="btn small" onclick="rmForm(0,{date:'${x}'})">＋ Đặt</button>`:''}</div>
+      ${L.length?L.map(b=>`<button class="rmli" style="--c:${rmRoom(b.room_id).color}" onclick="rmOpen(${b.id})"><span class="rmtime">${b.start_at.slice(11)}<br>${b.end_at.slice(11)}</span><span><b>${esc(b.title)}</b><span class="small muted">${esc(rmRoom(b.room_id).name)} · ${esc(b.booked_name)}</span></span></button>`).join(''):'<div class="small muted rmempty">Trống</div>'}</div>`}).join('')}</div>`;
+  window.scrollTo(0,0)}
+function rmSlot(e,day){const d=state.rmData;if(day<d.now.slice(0,10))return toast('Ngày đã qua');const r=e.currentTarget.getBoundingClientRect();
+  const m=Math.min(RM_H1*60-30,RM_H0*60+Math.floor((e.clientY-r.top)/RM_PX*2)*30);rmForm(0,{date:day,start:rmHM(m),end:rmHM(Math.min(m+60,RM_H1*60))})}
+function rmForm(id,pre={}){state.rmEdit=id||null;const d=state.rmData,b=id?d.bookings.find(x=>x.id===id):null,R=d.rooms.filter(r=>r.active);if(!R.length)return toast('Chưa có phòng nào');
+  const nx=Math.ceil((rmMin(d.now)+1)/30)*30,date=pre.date||(b?b.start_at.slice(0,10):d.now.slice(0,10));
+  const st=pre.start||(b?b.start_at.slice(11):rmHM(Math.min(Math.max(nx,8*60),RM_H1*60-60))),en=pre.end||(b?b.end_at.slice(11):rmHM(rmMin('0000-00-00T'+st)+60));
+  const room=b?b.room_id:+(state.rm.room||R[0].id);
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${b?'Sửa lịch họp':'Đặt phòng họp'}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <label class="lb" style="margin-top:12px">Nội dung cuộc họp <span class="req" aria-hidden="true">*</span><input class="f" id="rmT" value="${esc(b?b.title:'')}" placeholder="VD: Họp phòng HCNS tuần"></label>
+  <div class="evgrid"><label class="lb">Phòng<select class="f" id="rmR" onchange="rmBusy()">${R.map(r=>`<option value="${r.id}" ${r.id===room?'selected':''}>${esc(r.name)}${r.capacity?` (${r.capacity} chỗ)`:''}</option>`).join('')}</select></label>
+   <label class="lb">Ngày<input class="f" type="date" id="rmD" value="${date}" min="${b?'':d.now.slice(0,10)}" onchange="rmBusy()"></label>
+   <label class="lb">Từ<input class="f" type="time" id="rmS" value="${st}" step="900" onchange="rmBusy()"></label>
+   <label class="lb">Đến<input class="f" type="time" id="rmE" value="${en}" step="900" onchange="rmBusy()"></label></div>
+  <div class="chips" style="margin:-4px 0 10px">${[[30,'30 phút'],[60,'1 giờ'],[90,'1,5 giờ'],[120,'2 giờ'],[240,'Nửa ngày']].map(([m,l])=>`<button type="button" class="chip" onclick="$('#rmE').value=rmHM(Math.min(24*60-1,rmMin('0000-00-00T'+$('#rmS').value)+${m}));rmBusy()">${l}</button>`).join('')}</div>
+  <div id="rmBusy" class="small rmbusy"></div>
+  <label class="lb">Người tham dự<input class="f" id="rmA" value="${esc(b?b.attendees||'':'')}" placeholder="VD: Sếp Nam, Ms.Ngọc, phòng HCNS"></label>
+  <label class="lb">Ghi chú<input class="f" id="rmN" value="${esc(b?b.note||'':'')}" placeholder="Cần máy chiếu, đặt nước…"></label>
+  ${b?'':`<label class="lb">Lặp lại<select class="f" id="rmW"><option value="1">Không lặp</option>${[2,4,8,12].map(n=>`<option value="${n}">Hằng tuần, ${n} tuần</option>`).join('')}</select></label>`}
+  <div id="rmErr" class="ferr" role="alert"></div>
+  <div class="row"><button class="btn primary" onclick="evRun(this,()=>rmSave(${id||0}))">${b?'Lưu':'Đặt phòng'}</button></div>`);
+  $('#modalBody').style.width='min(560px,100%)';rmBusy()}
+async function rmBusy(){const el=$('#rmBusy');if(!el)return;const room=+$('#rmR').value,day=$('#rmD').value,s=$('#rmS').value,e=$('#rmE').value;if(!day)return;
+  let L=state.rmData.bookings;if(!rmWeekOf(state.rm.day).includes(day)){try{L=(await api(`/rooms?from_d=${day}&to_d=${day}`)).bookings}catch(_){return}}
+  L=L.filter(b=>b.room_id===room&&b.start_at.slice(0,10)===day&&b.id!==state.rmEdit).sort((a,b)=>a.start_at.localeCompare(b.start_at));
+  const hit=L.filter(b=>s&&e&&b.start_at.slice(11)<e&&b.end_at.slice(11)>s);
+  el.innerHTML=(hit.length?`<b class="wkwarn">Trùng giờ: ${hit.map(b=>`${b.start_at.slice(11)}–${b.end_at.slice(11)} ${esc(b.title)} (${esc(b.booked_name)})`).join('; ')}</b><br>`:s&&e&&e>s?'<b class="rmfree">Phòng trống giờ này</b><br>':'')+
+    (L.length?`Đã có trong ngày: ${L.map(b=>`${b.start_at.slice(11)}–${b.end_at.slice(11)} ${esc(b.title)}`).join(' · ')}`:'Phòng chưa có lịch nào trong ngày này.')}
+async function rmSave(id){const b={id:id||undefined,room_id:+$('#rmR').value,title:$('#rmT').value.trim(),date:$('#rmD').value,start:$('#rmS').value,end:$('#rmE').value,attendees:$('#rmA').value,note:$('#rmN').value,repeat:$('#rmW')?+$('#rmW').value:1};
+  if(!b.title)return evErr('rmT','Nhập nội dung cuộc họp');if(!b.start||!b.end||b.end<=b.start)return evErr('rmE','Giờ kết thúc phải sau giờ bắt đầu');
+  try{const r=await api('/rooms/book',{method:'POST',body:b});closeModal();toast(id?'Đã lưu':r.ids&&r.ids.length>1?`Đã đặt ${r.ids.length} buổi`:'Đã đặt phòng');state.rm.day=b.date;state.rmEdit=null;rmLoad()}
+  catch(e){const el=$('#rmErr');if(el)el.textContent=e.message}}
+function rmOpen(id){const b=state.rmData.bookings.find(x=>x.id===id);if(!b)return;const r=rmRoom(b.room_id);state.rmEdit=null;
+  const kv=(k,v)=>v?`<b>${k}</b><span>${v}</span>`:'';
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">${esc(b.title)}</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <div class="kv" style="margin:12px 0">${kv('Phòng',`<span class="rmdot" style="--c:${r.color}"></span>${esc(r.name)}`)}${kv('Thời gian',`${RM_WD[(new Date(b.start_at.slice(0,10)+'T00:00').getDay()+6)%7]} ${dmy(b.start_at.slice(0,10))} · ${b.start_at.slice(11)}–${b.end_at.slice(11)}`)}
+    ${kv('Người đặt',esc(b.booked_name)+(b.dept?` · ${esc(b.dept)}`:''))}${kv('Tham dự',esc(b.attendees||''))}${kv('Ghi chú',esc(b.note||''))}${kv('Lặp lại',b.series?'Hằng tuần':'')}</div>
+  ${b.can_edit?`<div class="row"><button class="btn" onclick="state.rmEdit=${id};rmForm(${id})">${ic('pencil')} Sửa / dời giờ</button><button class="btn danger" onclick="$('#rmDel').hidden=false">Huỷ lịch</button></div>
+  <div id="rmDel" class="evconfirm" hidden>Huỷ lịch này? <button class="btn small" onclick="$('#rmDel').hidden=true">Không</button><button class="btn small danger" onclick="evRun(this,()=>rmCancel(${id},'one'))">Huỷ buổi này</button>${b.series?`<button class="btn small danger" onclick="evRun(this,()=>rmCancel(${id},'series'))">Huỷ buổi này và các buổi sau</button>`:''}</div>`
+  :`<p class="small muted">Muốn đổi lịch này, liên hệ ${esc(b.booked_name)} hoặc quản trị.</p>`}`);$('#modalBody').style.width='min(520px,100%)'}
+async function rmCancel(id,scope){const r=await api('/rooms/book',{method:'POST',body:{id,cancel:true,scope}});closeModal();toast(r.cancelled>1?`Đã huỷ ${r.cancelled} buổi`:'Đã huỷ lịch');rmLoad()}
+function rmRooms(){const d=state.rmData;
+  const row=r=>`<div class="rmroom" data-id="${r.id||''}"><input class="f" data-k="name" value="${esc(r.name||'')}" placeholder="Tên phòng" aria-label="Tên phòng"><input class="f" data-k="capacity" type="number" min="1" inputmode="numeric" value="${r.capacity||''}" placeholder="Số chỗ" aria-label="Số chỗ">
+    <select class="f" data-k="color" aria-label="Màu">${d.colors.map(c=>`<option value="${c}" ${c===(r.color||d.colors[0])?'selected':''} style="color:${c}">● ${c}</option>`).join('')}</select>
+    <label class="small"><input type="checkbox" data-k="active" ${r.active!==0?'checked':''}> Dùng</label>
+    <button class="btn small primary" onclick="evRun(this,()=>rmRoomSave(this))">Lưu</button>${r.id?`<button class="btn small danger" onclick="evRun(this,()=>rmRoomSave(this,1))">Xoá</button>`:''}</div>`;
+  evModal(`<div class="row"><h2 style="flex:1;margin:0;font-size:17px">Quản lý phòng họp</h2><button class="btn" onclick="closeModal()">${ic('x')} Đóng</button></div>
+  <p class="small muted" style="margin:6px 0 12px">Phòng tắt “Dùng” thì không đặt mới được nhưng vẫn giữ lịch cũ. Chỉ xoá được phòng không còn lịch sắp tới.</p>
+  ${d.rooms.map(row).join('')}<div class="tkh2" style="margin-top:12px">Thêm phòng</div>${row({})}`);$('#modalBody').style.width='min(720px,100%)'}
+async function rmRoomSave(btn,del){const w=btn.closest('.rmroom'),g=k=>w.querySelector(`[data-k="${k}"]`),id=+w.dataset.id||undefined;
+  const b=del?{id,delete:true}:{id,name:g('name').value.trim(),capacity:g('capacity').value,color:g('color').value,active:g('active').checked};
+  if(!del&&!b.name)return toast('Nhập tên phòng');await api('/rooms',{method:'POST',body:b});toast(del?'Đã xoá phòng':'Đã lưu phòng');await rmLoad();rmRooms()}
 
 async function settings(){
   const s=await api('/status');const m=$('#main');

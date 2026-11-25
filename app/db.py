@@ -162,6 +162,19 @@ CREATE TABLE IF NOT EXISTS event_customers (
 );
 CREATE INDEX IF NOT EXISTS ix_event_customers ON event_customers(event_id);
 
+-- Đặt lịch phòng họp (app/rooms.py)
+CREATE TABLE IF NOT EXISTS rooms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, capacity INTEGER, note TEXT, color TEXT, active INTEGER DEFAULT 1, position INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS room_bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, title TEXT, start_at TEXT, end_at TEXT,   -- giờ Việt Nam, dạng 2026-11-25T09:00
+  booked_by TEXT, booked_name TEXT, dept TEXT, attendees TEXT, note TEXT,
+  series TEXT,                     -- các buổi của cùng một lịch lặp hằng tuần
+  status TEXT DEFAULT 'ok',        -- ok | cancelled
+  created TEXT, updated TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_room_bookings ON room_bookings(room_id, start_at);
+
 -- Giao việc nội bộ & KPI theo giờ (app/work.py)
 CREATE TABLE IF NOT EXISTS work_depts (code TEXT PRIMARY KEY, name TEXT, prefix TEXT, active INTEGER DEFAULT 1, cfg TEXT);
 CREATE TABLE IF NOT EXISTS work_items (

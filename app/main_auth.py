@@ -148,7 +148,7 @@ def pages_for(path):
     """Các trang được phép gọi API này (None = API dùng chung, không chặn theo trang)."""
     if path.startswith("/api/export/"):
         return {EXPORT_PAGES.get(path[len("/api/export/"):].split("/")[0], "settings")}
-    if path in ("/api/tasks", "/api/work") or path.startswith(("/api/tasks/", "/api/work/")):
+    if path in ("/api/tasks", "/api/work", "/api/rooms") or path.startswith(("/api/tasks/", "/api/work/", "/api/rooms/")):
         return None                     # việc cá nhân: ai cũng có; mỗi người chỉ thấy việc của mình (xem task_names)
     for prefix, pages in API_PAGES:
         if path == prefix or path.startswith(prefix + "/"):
