@@ -16,7 +16,7 @@ TABLES = ["crm_users", "roles", "tools", "sale_aliases", "notes", "kpi_targets",
           "work_depts", "work_items", "work_log", "work_recurring", "rooms", "room_bookings",
           "debt_terms", "birthday_gifts"]
 SETTING_KEYS = ["sale_source", "churn_days", "cat_map", "kpi_alloc", "report_basis",
-                "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl", "debt_term_days", "campaign_gsheet_id", "campaign_export_id", "debt_sheet_id",
+                "sale_merge", "gsheet_sa", "gsheet_id", "gsheet_tpl", "debt_term_days", "campaign_gsheet_id", "campaign_export_id", "debt_sheet_id", "sale_map",
                 "work_name_map"]
 SNAPSHOT_EVERY_HOURS = int(os.getenv("SNAPSHOT_EVERY_HOURS", "6"))
 _lock = threading.Lock()

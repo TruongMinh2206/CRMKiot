@@ -575,7 +575,16 @@ def active_sales(days=INACTIVE_DAYS):
 def drop_inactive_sales():
     """Sale không phát sinh hoạt động trong 45 ngày thì bỏ khỏi CRM: khách của họ chuyển về "(Chưa gán)"
     (dữ liệu khách và hoá đơn giữ nguyên). Khi tên đó có hoạt động trở lại, lần đồng bộ sau tự hiện lại."""
-    keep = active_sales()
+    # tên sale quản trị muốn gộp hẳn sang tên khác hoặc bỏ (tên mới rỗng = chuyển khách về "(Chưa gán)")
+    try:
+        ren = json.loads(db.get_meta("sale_map") or "{}")
+    except ValueError:
+        ren = {}
+    with db.cursor() as con:
+        for old_name, new_name in ren.items():
+            for col in ("sale_name", "sale_manual"):
+                con.execute(f"UPDATE customers SET {col}=? WHERE {col}=?", ((new_name or "").strip() or None, old_name))
+    keep = active_sales() - {k for k, v in ren.items() if not (v or "").strip()}
     if not keep:
         return 0
     with db.cursor() as con:

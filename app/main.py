@@ -303,6 +303,29 @@ def r_journey(from_d: str = Query(None, alias="from"), to_d: str = Query(None, a
     return reports.order_journey(f, t, sale_scope(user, sale))
 
 
+@app.get("/api/sales/map")
+def sales_map_get(user=Depends(current_user)):
+    if not is_admin(user):
+        raise HTTPException(403)
+    return json.loads(db.get_meta("sale_map") or "{}")
+
+
+@app.post("/api/sales/map")
+async def sales_map_set(request: Request, user=Depends(current_user)):
+    """Gộp hẳn một tên sale sang tên khác, hoặc bỏ tên đó (tên mới rỗng: khách về "(Chưa gán)"). Áp cho cả khách gán tay."""
+    if not is_admin(user):
+        raise HTTPException(403)
+    b = await request.json()
+    m = json.loads(db.get_meta("sale_map") or "{}")
+    for k, v in (b.get("set") or {}).items():
+        m[str(k).strip()] = str(v or "").strip()
+    for k in b.get("remove") or []:
+        m.pop(k, None)
+    db.set_meta("sale_map", json.dumps(m, ensure_ascii=False))
+    r = sync.reapply_async()
+    return {"ok": True, "map": m, "pending": r != "started"}
+
+
 @app.get("/api/report/birthdays/month")
 def r_birthday_month(ym: str = None, sale: str = None, user=Depends(current_user)):
     return reports.birthday_month(ym, sale_scope(user, sale))
