@@ -555,7 +555,7 @@ def reapply_sales():
     drop_inactive_sales()
 
 
-INACTIVE_DAYS = 90
+INACTIVE_DAYS = 45
 
 
 def active_sales(days=INACTIVE_DAYS):
@@ -573,7 +573,7 @@ def active_sales(days=INACTIVE_DAYS):
 
 
 def drop_inactive_sales():
-    """Sale không phát sinh hoạt động trong 90 ngày thì bỏ khỏi CRM: khách của họ chuyển về "(Chưa gán)"
+    """Sale không phát sinh hoạt động trong 45 ngày thì bỏ khỏi CRM: khách của họ chuyển về "(Chưa gán)"
     (dữ liệu khách và hoá đơn giữ nguyên). Khi tên đó có hoạt động trở lại, lần đồng bộ sau tự hiện lại."""
     keep = active_sales()
     if not keep:
