@@ -552,6 +552,41 @@ def reapply_sales():
             con.execute("UPDATE customers SET sale_name=? WHERE id=?", (resolve_sale(c, ctx), r["id"]))
     if sale_source() not in ("name", "group", "manual"):
         fill_sale_from_invoices()
+    drop_inactive_sales()
+
+
+INACTIVE_DAYS = 90
+
+
+def active_sales(days=INACTIVE_DAYS):
+    """Tên sale còn hoạt động trong `days` ngày gần đây: có khách của mình mua hàng, tự đứng bán hoá đơn,
+    hoặc có khách mới tạo. Tên gắn với tài khoản đăng nhập CRM và tên đang xếp team luôn được giữ."""
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    sale = "COALESCE(NULLIF(c.sale_manual,''), NULLIF(c.sale_name,''))"
+    names = {r["s"] for r in db.rows(f"""SELECT DISTINCT {sale} s FROM customers c WHERE {sale} IS NOT NULL AND (
+        c.created_date >= ? OR EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id=c.id AND i.status=1 AND i.purchase_date >= ?))""",
+                                     (since, since))}
+    names |= {r["s"] for r in db.rows("SELECT DISTINCT sold_by_name s FROM invoices WHERE status=1 AND purchase_date >= ? AND sold_by_name IS NOT NULL", (since,))}
+    names |= {r["s"] for r in db.rows("SELECT sale_name s FROM crm_users WHERE sale_name IS NOT NULL AND sale_name<>'' AND COALESCE(active,1)=1")}
+    names |= {r["s"] for r in db.rows("SELECT sale s FROM teams WHERE sale IS NOT NULL")}
+    return names
+
+
+def drop_inactive_sales():
+    """Sale không phát sinh hoạt động trong 90 ngày thì bỏ khỏi CRM: khách của họ chuyển về "(Chưa gán)"
+    (dữ liệu khách và hoá đơn giữ nguyên). Khi tên đó có hoạt động trở lại, lần đồng bộ sau tự hiện lại."""
+    keep = active_sales()
+    if not keep:
+        return 0
+    with db.cursor() as con:
+        cur = con.execute(f"""UPDATE customers SET sale_name=NULL WHERE sale_name IS NOT NULL AND sale_name<>''
+                              AND sale_name NOT IN ({','.join('?' * len(keep))})""", tuple(keep))
+        n = cur.rowcount
+        con.execute(f"""UPDATE customers SET sale_manual=NULL WHERE sale_manual IS NOT NULL AND sale_manual<>''
+                        AND sale_manual NOT IN ({','.join('?' * len(keep))})""", tuple(keep))
+    if n:
+        log.info("bỏ sale không hoạt động: %d khách chuyển về (Chưa gán)", n)
+    return n
 
 
 # ---------------------------------------------------------------------------
