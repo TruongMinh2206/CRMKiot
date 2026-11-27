@@ -281,6 +281,133 @@ def product_velocity(from_d, to_d, sale=None):
     return rows
 
 
+EXPIRY_BANDS = [("expired", "Đã hết hạn", -10**6, 0), ("m3", "Còn dưới 3 tháng", 0, 90), ("m6", "Còn 3–6 tháng", 90, 180),
+                ("m12", "Còn 6–12 tháng", 180, 365), ("ok", "Còn trên 12 tháng", 365, 10**6)]
+STALE_DAYS = 60
+
+
+def stock_watch():
+    """Hàng cận date (theo lô / hạn sử dụng trên KiotViet) và hàng tồn lâu (còn tồn nhưng quá 60 ngày không bán).
+
+    Với mỗi lô còn tồn: số ngày còn hạn, và theo tốc độ bán 30 ngày gần nhất thì có kịp bán hết trước hạn không
+    (các lô của cùng mã hàng bán theo thứ tự hết hạn trước - xuất trước). Hạn từ năm 2040 trở đi là hạn nhập tạm,
+    coi như chưa có hạn."""
+    today = date.today()
+    since = (today - timedelta(days=30)).isoformat()
+    prods = {p["id"]: p for p in db.rows("""SELECT p.id, p.code, p.name, p.category_name, p.trade_mark, p.on_hand, p.cost, p.base_price,
+        p.created_date FROM products p WHERE p.is_active=1 AND COALESCE(p.on_hand,0) > 0""")}
+    sold = {r["pid"]: r for r in db.rows(f"""SELECT d.product_id pid, MAX(i.purchase_date) last,
+        SUM(CASE WHEN i.purchase_date >= ? THEN d.quantity ELSE 0 END) q30
+        FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id WHERE {INV_OK} GROUP BY 1""", (since,))}
+    for p in prods.values():
+        s = sold.get(p["id"]) or {}
+        p["price"] = p["cost"] or p["base_price"] or 0
+        p["qty_per_day"] = round((s.get("q30") or 0) / 30, 2)
+        p["last_sold"] = (s.get("last") or "")[:10] or None
+        p["days_since_sold"] = (today - date.fromisoformat(p["last_sold"])).days if p["last_sold"] else None
+
+    batches, has_batch = [], set()
+    for b in db.rows("""SELECT product_id, batch_name, expire_date, SUM(on_hand) on_hand FROM product_batches
+                        WHERE on_hand > 0 GROUP BY 1,2,3 ORDER BY product_id, expire_date"""):
+        p = prods.get(b["product_id"])
+        if not p:
+            continue
+        has_batch.add(p["id"])
+        real = bool(b["expire_date"]) and b["expire_date"][:4] < "2040"
+        left = (date.fromisoformat(b["expire_date"]) - today).days if real else None
+        band = next((k for k, _, lo, hi in EXPIRY_BANDS if left is not None and lo <= left < hi), "none")
+        if left is not None and left < 0:
+            band = "expired"
+        batches.append({"product_id": p["id"], "code": p["code"], "name": p["name"], "category_name": p["category_name"],
+                        "trade_mark": p["trade_mark"] or "", "batch": b["batch_name"] or "", "expire_date": b["expire_date"] if real else None,
+                        "days_left": left, "band": band, "on_hand": b["on_hand"], "value": b["on_hand"] * p["price"],
+                        "qty_per_day": p["qty_per_day"], "last_sold": p["last_sold"], "days_since_sold": p["days_since_sold"]})
+    # có kịp bán hết trước hạn không: cộng dồn tồn của các lô hết hạn sớm hơn (bán lô cũ trước)
+    cum = {}
+    for b in batches:
+        if b["days_left"] is None:
+            b["sell_days"], b["unsold"] = None, 0
+            continue
+        ahead = cum.get(b["product_id"], 0)
+        cum[b["product_id"]] = ahead + b["on_hand"]
+        q = b["qty_per_day"]
+        b["sell_days"] = round((ahead + b["on_hand"]) / q) if q else None
+        can_sell = max(0, q * max(b["days_left"], 0) - ahead)
+        b["unsold"] = max(0, round(b["on_hand"] - can_sell, 1))            # số dự kiến còn lại khi lô hết hạn
+        b["unsold_value"] = b["unsold"] * (b["value"] / b["on_hand"] if b["on_hand"] else 0)
+    batches.sort(key=lambda b: (b["days_left"] is None, b["days_left"] if b["days_left"] is not None else 0, -b["value"]))
+
+    stale = []
+    for p in prods.values():
+        d = p["days_since_sold"]
+        if d is None or d > STALE_DAYS:
+            nearest = min((b["expire_date"] for b in batches if b["product_id"] == p["id"] and b["expire_date"]), default=None)
+            stale.append({"product_id": p["id"], "code": p["code"], "name": p["name"], "category_name": p["category_name"],
+                          "trade_mark": p["trade_mark"] or "", "on_hand": p["on_hand"], "value": p["on_hand"] * p["price"],
+                          "last_sold": p["last_sold"], "days_since_sold": d, "created_date": (p["created_date"] or "")[:10],
+                          "expire_date": nearest})
+    stale.sort(key=lambda r: -r["value"])
+    no_batch = [{"code": p["code"], "name": p["name"], "on_hand": p["on_hand"], "value": p["on_hand"] * p["price"],
+                 "trade_mark": p["trade_mark"] or ""} for p in prods.values() if p["id"] not in has_batch]
+    no_batch.sort(key=lambda r: -r["value"])
+    bands = {k: {"label": lab, "n": 0, "qty": 0, "value": 0} for k, lab, _, _ in EXPIRY_BANDS}
+    bands["none"] = {"label": "Lô chưa có hạn thật", "n": 0, "qty": 0, "value": 0}
+    for b in batches:
+        g = bands[b["band"]]
+        g["n"] += 1
+        g["qty"] += b["on_hand"]
+        g["value"] += b["value"]
+    for b in batches:                               # chỉ cảnh báo "không kịp bán" với lô còn hạn dưới 12 tháng
+        b["wont_sell"] = bool(b["unsold"] > 0 and b["band"] in ("m3", "m6", "m12"))
+    late = [b for b in batches if b["wont_sell"]]
+    return {"batches": batches, "stale": stale, "no_batch": no_batch, "bands": bands, "stale_days": STALE_DAYS,
+            "stale_value": sum(r["value"] for r in stale), "wont_sell": len(late), "wont_sell_value": sum(b.get("unsold_value", 0) for b in late),
+            "as_of": db.get_meta("last_sync"), "has_batches": bool(db.one("SELECT 1 x FROM product_batches LIMIT 1"))}
+
+
+def birthday_month(ym=None, sale=None):
+    """Khách có sinh nhật trong tháng (xem được cả tháng sắp tới), kèm theo dõi quà tặng và chi phí của năm đó."""
+    today = date.today()
+    try:
+        y, m = (int(x) for x in (ym or "").split("-"))
+        date(y, m, 1)
+    except (ValueError, TypeError):
+        y, m = today.year, today.month
+    sf, sp = _sale_filter(sale)
+    since = (today - timedelta(days=365)).isoformat()
+    rows = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, c.birth_date, {sale_expr()} AS sale,
+        COALESCE(c.is_boss,0) is_boss,
+        (SELECT MAX(purchase_date) FROM invoices i WHERE i.customer_id=c.id AND {INV_OK}) last_purchase,
+        (SELECT COALESCE(SUM({REV}),0) FROM invoices i WHERE i.customer_id=c.id AND {INV_OK}) lifetime_revenue,
+        (SELECT COALESCE(SUM({REV}),0) FROM invoices i WHERE i.customer_id=c.id AND {INV_OK} AND i.purchase_date >= ?) revenue_12m,
+        g.gift, g.gift_name, g.budget, g.spent, g.vat, g.photo, g.invoice_link, g.note, g.updated, g.updated_by
+        FROM customers c LEFT JOIN birthday_gifts g ON g.customer_id=c.id AND g.year=?
+        WHERE c.is_active=1 AND c.birth_date IS NOT NULL AND substr(c.birth_date,1,4) > '1900'
+          AND CAST(substr(c.birth_date,6,2) AS INTEGER)=? {sf}""", (since, y, m) + sp)
+    for r in rows:
+        r["day"] = int(r["birth_date"][8:10])
+        r["birthday_ddmm"] = f"{r['day']:02d}/{m:02d}"
+        r["age"] = y - int(r["birth_date"][:4])
+        for k in ("gift", "vat"):
+            r[k] = int(r[k] or 0)
+        for k in ("budget", "spent"):
+            r[k] = r[k] or 0
+        for k in ("gift_name", "photo", "invoice_link", "note"):
+            r[k] = r[k] or ""
+    rows.sort(key=lambda r: (r["day"], r["name"] or ""))
+    gifts = [r for r in rows if r["gift"]]
+    months = []
+    cur = date(today.year, today.month, 1)
+    for i in range(-2, 13):                       # 2 tháng tới và 12 tháng trước
+        mm, yy = (cur.month - 1 + (-i)) % 12 + 1, cur.year + (cur.month - 1 + (-i)) // 12
+        months.append(f"{yy}-{mm:02d}")
+    return {"ym": f"{y}-{m:02d}", "months": months, "rows": rows,
+            "totals": {"customers": len(rows), "gifts": len(gifts), "budget": sum(r["budget"] for r in gifts),
+                       "spent": sum(r["spent"] for r in gifts), "spent_vat": sum(r["spent"] for r in gifts if r["vat"]),
+                       "with_vat": sum(1 for r in gifts if r["vat"]), "no_invoice": sum(1 for r in gifts if r["spent"] and not r["invoice_link"]),
+                       "no_photo": sum(1 for r in gifts if not r["photo"])}}
+
+
 # ---------------------------------------------------------------------------
 # 5. Hành trình đơn hàng
 # ---------------------------------------------------------------------------
@@ -686,30 +813,99 @@ def debt_term():
     return v if v in (30, 60, 90) else 30
 
 
-def debt_aging(sale=None):
-    """Tuổi nợ từng khách.
+def _month_range(ym=None):
+    """(ngày đầu tháng, ngày đầu tháng sau, 'YYYY-MM') — mặc định tháng hiện tại."""
+    today = date.today()
+    try:
+        y, m = (int(x) for x in (ym or "").split("-"))
+        first = date(y, m, 1)
+    except (ValueError, TypeError):
+        first = today.replace(day=1)
+    if first > today:
+        first = today.replace(day=1)
+    nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return first.isoformat(), nxt.isoformat(), first.strftime("%Y-%m")
 
-    KiotViet chỉ cho biết tổng nợ hiện tại của khách, không cho biết hoá đơn nào
-    còn nợ. Ở đây coi tiền khách trả là trả cho hoá đơn cũ trước, nên phần còn nợ
-    nằm ở các hoá đơn mới nhất: đi ngược từ hoá đơn mới về cũ cho tới khi đủ số nợ.
-    Phần nợ lớn hơn tổng hoá đơn đang có trong CRM được xếp vào nhóm trên 90 ngày.
+
+def debt_months():
+    """Các tháng xem được biến động công nợ: từ tháng đầu tiên có đủ phiếu thu trong CRM tới nay."""
+    lo = (db.one("SELECT MIN(trans_date) d FROM cashflow") or {}).get("d")
+    today = date.today()
+    out, cur = [], today.replace(day=1)
+    lo_m = (date.fromisoformat(lo[:10]).replace(day=1) + timedelta(days=32)).replace(day=1) if lo else cur
+    while cur >= lo_m and len(out) < 12:
+        out.append(cur.strftime("%Y-%m"))
+        cur = (cur - timedelta(days=1)).replace(day=1)
+    return out or [today.strftime("%Y-%m")]
+
+
+def debt_aging(sale=None, ym=None):
+    """Công nợ từng khách: tuổi nợ, hạn nợ, quá hạn và biến động trong tháng.
+
+    * Tuổi nợ: KiotViet chỉ cho biết tổng nợ hiện tại của khách, không cho biết hoá đơn nào còn nợ.
+      Coi tiền khách trả là trả cho hoá đơn cũ trước, nên phần còn nợ nằm ở các hoá đơn mới nhất:
+      đi ngược từ hoá đơn mới về cũ cho tới khi đủ số nợ. "Ngày nợ" là ngày của hoá đơn cũ nhất còn nợ.
+    * Hạn nợ: số ngày được nợ, riêng từng khách (bảng debt_terms) hoặc hạn chung. Quá hạn = phần nợ nằm ở
+      các hoá đơn đã quá số ngày đó; số ngày quá hạn tính theo hoá đơn cũ nhất còn nợ.
+    * Trong tháng: nợ cuối = nợ đầu + mua − trả hàng − đã thanh toán. Đã kiểm với KiotViet: nợ hiện tại
+      = tổng hoá đơn hoàn thành − trả hàng − phiếu thu của khách, nên nợ đầu tháng tính lùi từ nợ hiện tại.
     """
     sf, sp = _sale_filter(sale)
     today = date.today()
     term = debt_term()
-    custs = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} sale, c.debt,
-        COALESCE(c.is_boss,0) is_boss FROM customers c WHERE c.debt > 0 {sf} ORDER BY c.debt DESC""", sp)
+    m0, m1, ym = _month_range(ym)
+
+    def by_cust(sql, params):
+        return {r["cid"]: r for r in db.rows(sql, params)}
+
+    def moves(since, until=None):
+        """Mua / trả hàng / đã trả của từng khách trong [since, until)."""
+        hi, hp = (" AND {col} < ?", (until,)) if until else ("", ())
+        inv = by_cust(f"SELECT customer_id cid, SUM(total) v FROM invoices i WHERE {INV_OK} AND purchase_date >= ?"
+                      + hi.format(col="purchase_date") + " GROUP BY 1", (since,) + hp)
+        ret = by_cust("SELECT customer_id cid, SUM(total) v FROM returns WHERE return_date >= ?"
+                      + hi.format(col="return_date") + " GROUP BY 1", (since,) + hp)
+        pay = by_cust("SELECT partner_id cid, SUM(amount) v, MAX(trans_date) last FROM cashflow WHERE status=0 AND trans_date >= ?"
+                      + hi.format(col="trans_date") + " GROUP BY 1", (since,) + hp)
+        return inv, ret, pay
+
+    inv_m, ret_m, pay_m = moves(m0, m1)            # trong tháng đang xem
+    inv_a, ret_a, pay_a = moves(m1)                # sau tháng đang xem (để lùi về số nợ cuối tháng đó)
+    last_pay = by_cust("SELECT partner_id cid, MAX(trans_date) v FROM cashflow WHERE status=0 AND amount>0 GROUP BY 1", ())
+    v = lambda d, cid: (d.get(cid) or {}).get("v") or 0
+    active = set(inv_m) | set(ret_m) | set(pay_m) | set(inv_a) | set(ret_a) | set(pay_a)
+
+    terms = {r["customer_id"]: r for r in db.rows("SELECT customer_id, days, note FROM debt_terms")}
+    custs = []
+    for c in db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} sale, COALESCE(c.debt,0) debt,
+        COALESCE(c.is_boss,0) is_boss FROM customers c WHERE 1=1 {sf} ORDER BY c.debt DESC""", sp):
+        cid = c["id"]
+        if c["debt"] <= 0.5 and cid not in active:
+            continue
+        c["bought"], c["returned"], c["paid"] = v(inv_m, cid), v(ret_m, cid), v(pay_m, cid)
+        c["closing"] = c["debt"] - v(inv_a, cid) + v(ret_a, cid) + v(pay_a, cid)
+        c["opening"] = c["closing"] - c["bought"] + c["returned"] + c["paid"]
+        for k in ("opening", "closing"):
+            if abs(c[k]) < 0.5:
+                c[k] = 0
+        if c["debt"] <= 0.5 and c["opening"] <= 0.5 and c["closing"] <= 0.5:
+            continue                                # mua và trả ngay, không phát sinh nợ
+        custs.append(c)
+    ids = [c["id"] for c in custs if c["debt"] > 0.5]
     invs = {}
-    for r in db.rows(f"""SELECT i.customer_id cid, substr(i.purchase_date,1,10) d, i.total
-        FROM invoices i JOIN customers c ON c.id=i.customer_id
-        WHERE {INV_OK} AND c.debt > 0 AND i.total > 0 {sf}
-        ORDER BY i.customer_id, i.purchase_date DESC""", sp):
-        invs.setdefault(r["cid"], []).append(r)
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        for r in db.rows(f"""SELECT i.customer_id cid, i.code, substr(i.purchase_date,1,10) d, i.total FROM invoices i
+            WHERE {INV_OK} AND i.total > 0 AND i.customer_id IN ({",".join("?" * len(part))})
+            ORDER BY i.customer_id, i.purchase_date DESC""", tuple(part)):
+            invs.setdefault(r["cid"], []).append(r)
 
     keys = ("b0", "b1", "b2", "b3")
-    over_keys = {30: keys[1:], 60: keys[2:], 90: keys[3:]}[term]
     for c in custs:
-        c.update(b0=0, b1=0, b2=0, b3=0, oldest_days=None, older=False)
+        t = terms.get(c["id"])
+        c["term"], c["term_custom"], c["term_note"] = (t["days"], True, t["note"] or "") if t else (term, False, "")
+        c.update(b0=0, b1=0, b2=0, b3=0, oldest_days=None, oldest_date=None, due_date=None, overdue=0, overdue_days=0,
+                 older=False, open_invoices=[], last_pay=((last_pay.get(c["id"]) or {}).get("v") or "")[:10] or None)
         left = c["debt"]
         mine = invs.get(c["id"], [])
         c["last_purchase"] = mine[0]["d"] if mine else None
@@ -720,29 +916,74 @@ def debt_aging(sale=None):
             take = min(left, i["total"])
             age = (today - date.fromisoformat(i["d"])).days
             c["b0" if age <= 30 else "b1" if age <= 60 else "b2" if age <= 90 else "b3"] += take
-            c["oldest_days"] = age
+            if age > c["term"]:
+                c["overdue"] += take
+            c["oldest_days"], c["oldest_date"] = age, i["d"]
+            c["open_invoices"].append({"code": i["code"], "date": i["d"], "total": i["total"], "owed": take, "age": age,
+                                       "due": (date.fromisoformat(i["d"]) + timedelta(days=c["term"])).isoformat(),
+                                       "late": max(0, age - c["term"])})
             left -= take
         if left > 0.5:                       # nợ có từ trước khoảng dữ liệu CRM đang giữ
             c["b3"] += left
+            c["overdue"] += left
             c["older"] = True
-        c["overdue"] = sum(c[k] for k in over_keys)
+        if c["oldest_date"]:
+            c["due_date"] = (date.fromisoformat(c["oldest_date"]) + timedelta(days=c["term"])).isoformat()
+            c["overdue_days"] = max(0, c["oldest_days"] - c["term"]) if c["overdue"] > 0 else 0
         # nợ quá hạn mà đã lâu không mua nữa thì khả năng mất cao
         c["risk"] = bool(c["overdue"] > 0 and (c["days_since_last"] is None or c["days_since_last"] > 60))
 
+    owing = [c for c in custs if c["debt"] > 0.5]
     by_sale = {}
     for c in custs:
-        g = by_sale.setdefault(c["sale"], {"sale": c["sale"], "customers": 0, "debt": 0, "overdue": 0,
-                                           "b0": 0, "b1": 0, "b2": 0, "b3": 0})
-        g["customers"] += 1
-        for k in ("debt", "overdue") + keys:
+        g = by_sale.setdefault(c["sale"], {"sale": c["sale"], "customers": 0, "debt": 0, "overdue": 0, "b0": 0, "b1": 0,
+                                           "b2": 0, "b3": 0, "opening": 0, "bought": 0, "returned": 0, "paid": 0, "closing": 0})
+        g["customers"] += 1 if c["debt"] > 0.5 else 0
+        for k in ("overdue", "opening", "bought", "returned", "paid", "closing") + keys:
             g[k] += c[k]
+        g["debt"] += max(c["debt"], 0)
     pre = db.one(f"SELECT COUNT(*) n, COALESCE(SUM(c.debt),0) v FROM customers c WHERE c.debt < 0 {sf}", sp)
-    return {"term": term, "rows": custs, "by_sale": sorted(by_sale.values(), key=lambda g: -g["debt"]),
-            "total": sum(c["debt"] for c in custs), "overdue": sum(c["overdue"] for c in custs),
-            "overdue_customers": sum(1 for c in custs if c["overdue"] > 0),
-            "risk_customers": sum(1 for c in custs if c["risk"]),
-            "buckets": {k: sum(c[k] for c in custs) for k in keys},
+    tot = lambda k: sum(c[k] for c in custs)
+    return {"term": term, "ym": ym, "months": debt_months(), "is_current": ym == today.strftime("%Y-%m"),
+            "rows": custs, "by_sale": sorted(by_sale.values(), key=lambda g: -g["debt"]),
+            "total": sum(c["debt"] for c in owing), "owing": len(owing), "overdue": sum(c["overdue"] for c in owing),
+            "overdue_customers": sum(1 for c in owing if c["overdue"] > 0),
+            "risk_customers": sum(1 for c in owing if c["risk"]),
+            "buckets": {k: sum(c[k] for c in owing) for k in keys},
+            "month": {"opening": tot("opening"), "bought": tot("bought"), "returned": tot("returned"), "paid": tot("paid"),
+                      "closing": tot("closing"), "payers": sum(1 for c in custs if c["paid"] > 0)},
+            "has_payments": bool(db.one("SELECT 1 x FROM cashflow LIMIT 1")),
             "prepaid": {"n": pre["n"], "v": -pre["v"]}, "as_of": db.get_meta("last_sync")}
+
+
+def debt_detail(cid, ym=None):
+    """Diễn biến công nợ của một khách trong tháng: nợ đầu tháng, từng lần mua / trả hàng / thanh toán, nợ còn lại."""
+    c = db.one(f"SELECT c.id, c.code, c.name, c.contact_number, {sale_expr()} sale, COALESCE(c.debt,0) debt FROM customers c WHERE id=?", (cid,))
+    if not c:
+        return None
+    m0, m1, ym = _month_range(ym)
+    ev = []
+    for r in db.rows(f"SELECT code, purchase_date d, total v FROM invoices i WHERE {INV_OK} AND customer_id=? AND purchase_date>=?", (cid, m0)):
+        ev.append({"d": r["d"], "kind": "inv", "code": r["code"], "amount": r["v"] or 0})
+    for r in db.rows("SELECT code, return_date d, total v FROM returns WHERE customer_id=? AND return_date>=?", (cid, m0)):
+        ev.append({"d": r["d"], "kind": "ret", "code": r["code"], "amount": -(r["v"] or 0)})
+    for r in db.rows("SELECT code, trans_date d, amount v, method, cash_group FROM cashflow WHERE status=0 AND partner_id=? AND trans_date>=?", (cid, m0)):
+        ev.append({"d": r["d"], "kind": "pay", "code": r["code"], "amount": -(r["v"] or 0),
+                   "note": " · ".join(x for x in ({"Cash": "Tiền mặt", "Transfer": "Chuyển khoản", "Card": "Thẻ"}.get(r["method"], r["method"] or ""), r["cash_group"] or "") if x)})
+    ev.sort(key=lambda e: e["d"] or "")
+    opening = c["debt"] - sum(e["amount"] for e in ev)
+    bal, rows = opening, []
+    for e in ev:
+        bal += e["amount"]
+        e["balance"] = bal
+        if e["d"] < m1:
+            rows.append(e)
+    closing = rows[-1]["balance"] if rows else opening
+    info = next((r for r in debt_aging(None, ym)["rows"] if r["id"] == cid), None) or {}
+    return {"customer": c, "ym": ym, "opening": opening if abs(opening) >= 0.5 else 0, "closing": closing if abs(closing) >= 0.5 else 0,
+            "rows": rows, "open_invoices": info.get("open_invoices", []), "term": info.get("term", debt_term()),
+            "term_custom": info.get("term_custom", False), "term_note": info.get("term_note", ""),
+            "overdue": info.get("overdue", 0), "overdue_days": info.get("overdue_days", 0), "due_date": info.get("due_date")}
 
 
 # ---------------------------------------------------------------------------

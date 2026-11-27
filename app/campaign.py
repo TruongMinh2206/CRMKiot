@@ -191,13 +191,13 @@ def compute(user=None, until=None):
             "program": row_of(e["program"]), "name": P["name"], "unit": P["unit"], "unit_label": P["unit_label"],
             "mode": P["mode"], "hint": P["hint"], "entries": [], "qty": 0, "amount": 0, "carry": 0, "value": 0,
             "started": False, "last": None, "sheet_value": None, "sheet_last": None,
-            "reward": "", "registered": "", "note": "", "paid": ""})
+            "reward": "", "registered": "", "note": "", "paid": "", "year_end": ""})
         got = _entry_lines(e, cust, lines, until)
         qty = sum(r["q"] * r["k"] for r in got)
         amount = sum(r["amt"] for r in got)
         carry = (e["carry_amount"] if P["unit"] == "amount" else e["carry_qty"]) or 0
         row["entries"].append({**{k: e[k] for k in ("id", "program", "customer_code", "member", "start_at", "end_at", "carry_qty",
-                                                    "carry_amount", "carry_note", "registered", "reward", "note", "paid")},
+                                                    "carry_amount", "carry_note", "registered", "reward", "note", "paid", "year_end")},
                                "customer": g["customers"][e["customer_code"]], "qty": qty, "amount": amount,
                                "lines": len(got)})
         row["qty"] += qty
@@ -210,8 +210,8 @@ def compute(user=None, until=None):
         if e["sheet_value"] is not None:
             row["sheet_value"] = (row["sheet_value"] or 0) + e["sheet_value"]
             row["sheet_last"] = max(row["sheet_last"] or "", e["sheet_last"] or "")
-        for k in ("reward", "registered", "note", "paid"):
-            if e[k] and e[k] not in row[k]:
+        for k in ("reward", "registered", "note", "paid", "year_end"):
+            if e.get(k) and e[k] not in row[k]:
                 row[k] = (row[k] + " · " if row[k] else "") + e[k]
 
     out = []
@@ -325,9 +325,9 @@ async def campaign_entry(request: Request, user=Depends(current_user)):
         vals = [(b.get("grp") or "").strip() or code, int(b.get("stt") or 0) or None, code, (b.get("member") or "").strip(),
                 b["program"], start, end, float(b.get("carry_qty") or 0), float(b.get("carry_amount") or 0),
                 b.get("carry_note") or "", b.get("registered") or "", b.get("reward") or "", b.get("owner") or "",
-                b.get("note") or "", b.get("paid") or ""]
+                b.get("note") or "", b.get("paid") or "", b.get("year_end") or ""]
         cols = ["grp", "stt", "customer_code", "member", "program", "start_at", "end_at", "carry_qty", "carry_amount",
-                "carry_note", "registered", "reward", "owner", "note", "paid"]
+                "carry_note", "registered", "reward", "owner", "note", "paid", "year_end"]
         if b.get("id"):
             con.execute(f"UPDATE campaign_entries SET {','.join(c + '=?' for c in cols)} WHERE id=?", vals + [b["id"]])
         else:
@@ -417,7 +417,9 @@ async def campaign_export_run(request: Request, user=Depends(current_user)):
         db.set_meta("campaign_export_id", str(b.get("sheet") or "").strip())
         return campaign_export_status(user)
     try:
-        return campaign_export.run(b.get("until"), bool(b.get("replace")))
+        if b.get("action") == "pull":
+            return campaign_export.pull_only(user["display_name"])
+        return campaign_export.run(b.get("until"), bool(b.get("replace")), by=user["display_name"])
     except gsheet.ConfigError as e:
         raise HTTPException(400, str(e))
 

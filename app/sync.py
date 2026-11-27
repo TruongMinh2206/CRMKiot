@@ -238,8 +238,10 @@ def sync_all(full=False):
         # luôn tải toàn bộ hàng hoá: bán hàng làm tồn kho đổi nhưng KiotViet không đổi
         # ngày sửa của mã hàng, tải theo ngày sửa thì tồn kho trong CRM bị cũ
         prod_from = None
+        batches = []
+        items = list(k.products(prod_from))     # tải xong rồi mới ghi, để không giữ khoá ghi của DB suốt lúc tải
         with db.cursor() as con:
-            for p in k.products(prod_from):
+            for p in items:
                 counts["products"] += 1
                 inv = p.get("inventories") or []
                 on_hand = sum((i.get("onHand") or 0) for i in inv)
@@ -249,6 +251,11 @@ def sync_all(full=False):
                             (p["id"], p.get("code"), p.get("name"), p.get("fullName"), p.get("categoryId"), p.get("categoryName"),
                              _m(p.get("basePrice")), cost, on_hand, 0 if p.get("isActive") is False else 1, p.get("unit"),
                              _d(p.get("createdDate")), _d(p.get("modifiedDate")), None, p.get("tradeMarkName")))
+                batches += [(b["id"], p["id"], b.get("batchName"), (_d(b.get("expireDate")) or "")[:10], b.get("onHand") or 0,
+                             b.get("branchId")) for b in (p.get("productBatchExpires") or []) if b.get("id")]
+            if counts["products"]:                       # chỉ thay lô khi đã tải xong toàn bộ hàng hoá
+                con.execute("DELETE FROM product_batches")
+                con.executemany("INSERT INTO product_batches(batch_id,product_id,batch_name,expire_date,on_hand,branch_id) VALUES(?,?,?,?,?,?)", batches)
 
         db.set_meta("trade_mark_filled", "1")
 
@@ -280,6 +287,12 @@ def sync_all(full=False):
                 _sync_returns(k, from_date=wf, to_date=wt)
                 if wt < _fmt_kiot(datetime.now() - timedelta(days=1)):
                     db.set_meta(key, "1")
+
+        state["progress"] = "Phiếu thu công nợ"
+        try:
+            _sync_cashflow(k)
+        except Exception:
+            log.exception("cashflow sync failed (bỏ qua)")
 
         if full or db.get_meta("verified_v1") != "1":
             state["progress"] = "Kiểm tra & vá dữ liệu"
@@ -365,6 +378,22 @@ def _sync_invoices(k, **kw):
     finally:
         con.close()
     return n
+
+
+def _sync_cashflow(k):
+    """Phiếu thu / chi của khách hàng trên sổ quỹ. Lần đầu tải 120 ngày, sau đó mỗi lần tải lại 40 ngày gần nhất
+    (phiếu có thể bị sửa / huỷ sau khi lập) và thay toàn bộ phiếu trong khoảng đó."""
+    first = db.get_meta("cashflow_filled") != "1"
+    start = (datetime.now() - timedelta(days=120 if first else 40)).strftime("%Y-%m-%d")
+    end = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    rows = [(v["id"], v.get("code"), _d(v.get("transDate")), _m(v.get("amount")), v.get("partnerId"), v.get("method"),
+             v.get("cashGroup"), v.get("status"), v.get("statusValue"))
+            for v in k.cashflow(start, end) if v.get("partnerType") == "C" and v.get("partnerId")]
+    with db.cursor() as con:
+        con.execute("DELETE FROM cashflow WHERE trans_date >= ?", (start,))
+        con.executemany("INSERT OR REPLACE INTO cashflow(id,code,trans_date,amount,partner_id,method,cash_group,status,status_value) VALUES(?,?,?,?,?,?,?,?,?)", rows)
+    db.set_meta("cashflow_filled", "1")
+    return len(rows)
 
 
 def _sync_returns(k, **kw):

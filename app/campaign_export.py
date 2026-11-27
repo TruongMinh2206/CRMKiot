@@ -331,11 +331,12 @@ def build_tong(groups, titles, gids, results, stamp, scope, sep):
             G.put(r, 6, C((row.get("reward") or "").upper(), size=10))
             G.put(r, 7, C(row.get("registered") or "", size=10, h="RIGHT"))
             G.put(r, 8, C(serial(start[:10] + " 00:00:00") if start else "", size=10, num="day", h="RIGHT"))
-            G.put(r, 9, C(None, size=10))
+            end = max((e["end_at"] for e in row.get("entries", []) if e.get("end_at")), default="")
+            G.put(r, 9, C(serial(end[:10] + " 00:00:00") if end else "", size=10, num="day", h="RIGHT"))
             G.put(r, 10, C(prog_v, size=10, h="RIGHT",
                            num="dec" if row.get("mode") == "ticket" else None))
             G.put(r, 11, C(row.get("paid") or "", size=10, bold=True, fill="#FFFF00"))
-            G.put(r, 12, C(None, size=10))
+            G.put(r, 12, C(row.get("year_end") or "", size=10, wrap=True))
             G.put(r, 14, C(row.get("note") or "", size=10, wrap=True))
             r += 1
         r1 = r - 1
@@ -406,6 +407,216 @@ def style_tong(c, sid, G):
         log.warning("bỏ qua nhãn màu bảng tổng: %s", e)
 
 
+# ---------------------------------------------------------------------------
+# Hai chiều: nhận lại những gì kế toán sửa / thêm ở tab BẢNG TỔNG của file xuất
+# ---------------------------------------------------------------------------
+SNAP_KEY = "campaign_export_snapshot"
+ROW_FIELDS = ("reward", "registered", "paid", "year_end", "note")
+
+
+def _norm(v):
+    if isinstance(v, float) and v == int(v):
+        v = int(v)
+    return re.sub(r"\s+", " ", str(v if v is not None else "")).strip()
+
+
+def _programs_of(label):
+    """'EUNDAN VITAMIN C, ENZYM' -> ['EUN', 'ENZ'] (chương trình đầu là dòng chính)."""
+    out = []
+    for tok in re.split(r"[,+;/]", _norm(label).upper()):
+        t = tok.strip()
+        k = ("RET" if "RETINAL" in t else "ENZ" if "ENZYM" in t else "NA" if ("KRLAB" in t or t.startswith("NẠ")) else
+             "NGHE" if "NGHỆ" in t or "NGHE" in t else "EUN" if "EUNDAN" in t or "VITAMIN C" in t else
+             "DER" if "DEMAXILIC" in t or "DERMAXILIC" in t else "WB" if "WONDER" in t else "LUM" if "LUMOS" in t else None)
+        if k and k not in out:
+            out.append(k)
+    return out
+
+
+def _date_of(v):
+    """Ô ngày của sheet (số serial hoặc chữ dd/mm/yyyy) -> 'YYYY-MM-DD' hoặc ''."""
+    if v in (None, ""):
+        return ""
+    if isinstance(v, (int, float)):
+        return campaign_sheet.from_serial(v).strftime("%Y-%m-%d") if v > 30000 else ""
+    m = re.match(r"\s*(\d{1,2})[/-](\d{1,2})[/-](\d{4})", str(v))
+    return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}" if m else ""
+
+
+def _snapshot(groups):
+    """Giá trị từng dòng BẢNG TỔNG lúc vừa xuất — để lần sau biết ô nào kế toán đã sửa trên sheet."""
+    snap = {}
+    for g in groups:
+        codes = [c["code"] for c in g["customers"]]
+        if not codes:
+            continue
+        snap[codes[0] + "|"] = {"stt": g["stt"], "name": g["grp"], "owner": g["owner"] or "", "codes": codes}
+        for row in g["rows"]:
+            ents = row.get("entries", [])
+            snap[f"{codes[0]}|{row['program']}"] = {
+                "progs": sorted({e["program"] for e in ents}),
+                "start": min((e["start_at"] for e in ents if e.get("start_at")), default="")[:10],
+                "end": max((e["end_at"] for e in ents if e.get("end_at")), default="")[:10],
+                "reward": (row.get("reward") or "").upper(), **{k: row.get(k) or "" for k in ROW_FIELDS if k != "reward"}}
+    return snap
+
+
+def pull(c, sid, by=""):
+    """Đọc BẢNG TỔNG của file xuất và cập nhật CRM:
+    * dòng mới (khách mới, hoặc khách cũ thêm chương trình / thêm mã khách chạy chung) -> thêm vào CRM;
+    * ô đã sửa trên sheet so với lần xuất trước (thưởng, số khách ĐK, ngày bắt đầu / kết thúc, đã trả thưởng,
+      trả thưởng cuối năm, note, người phụ trách, STT) -> cập nhật CRM. Ô không đổi trên sheet thì giữ số của CRM.
+    Xoá dòng trên sheet không xoá ở CRM."""
+    r = c.get(f"{API}/{sid}/values/{TONG}!A2:N3000", params=[("valueRenderOption", "UNFORMATTED_VALUE"),
+                                                               ("dateTimeRenderOption", "SERIAL_NUMBER")])
+    if r.status_code == 400:
+        return {"added": [], "updated": [], "skipped": [], "read": 0}          # file chưa có tab BẢNG TỔNG
+    if r.status_code >= 400:
+        raise ConfigError(f"Không đọc được BẢNG TỔNG của file xuất: {r.text[:200]}")
+    try:
+        snap = json.loads(db.get_meta(SNAP_KEY) or "{}")
+    except ValueError:
+        snap = {}
+    entries = [e for e in db.rows("SELECT * FROM campaign_entries ORDER BY stt, grp, id") if e["program"] in campaign.PROGRAMS]
+    code_grp, grp_entries = {}, {}
+    for e in entries:
+        code_grp.setdefault(e["customer_code"], e["grp"])
+        grp_entries.setdefault(e["grp"], []).append(e)
+    name_grp = {g.strip().lower(): g for g in grp_entries}
+    first_grp = {es[0]["customer_code"]: g for g, es in grp_entries.items()}      # mã đứng đầu của từng khách / team
+    known = {r["code"]: r["name"] for r in db.rows("SELECT code, name FROM customers WHERE code IS NOT NULL")}
+    now = datetime.now().isoformat(timespec="seconds")
+    added, updated, skipped = [], [], []
+    cur = None
+    read = 0
+    with db.cursor() as con:
+        def insert(grp, stt, code, prog, start, row, owner, member=""):
+            con.execute("""INSERT INTO campaign_entries(grp,stt,customer_code,member,program,start_at,end_at,carry_qty,carry_amount,
+                carry_note,registered,reward,owner,note,paid,year_end) VALUES(?,?,?,?,?,?,?,0,0,'',?,?,?,?,?,?)""",
+                        (grp, stt, code, member, prog, (start + " 00:00:00") if start else None, (row["end"] + " 23:59:59") if row["end"] else None,
+                         row["registered"], row["reward"], owner, row["note"], row["paid"], row["year_end"]))
+            added.append(f"{grp} · {campaign.PROGRAMS[prog]['name']}" + (f" · {member}" if member else "")
+                         + ("" if start else " (chưa có ngày bắt đầu nên chưa tính)"))
+
+        for raw in r.json().get("values", []):
+            v = list(raw) + [""] * (14 - len(raw))
+            a, b, cname, owner = _norm(v[0]), _norm(v[1]), _norm(v[2]), _norm(v[3])
+            if a or b or cname:                                   # bắt đầu một khách / team mới (ô gộp chỉ có giá trị ở dòng đầu)
+                codes = [x for x in re.split(r"[,;\s]+", b.upper()) if x]
+                cur = {"stt": int(float(a)) if re.fullmatch(r"\d+(\.0+)?", a) else None, "codes": codes, "name": cname, "owner": owner}
+                # một mã có thể vừa chạy riêng vừa nằm trong một team: ưu tiên khớp theo mã đứng đầu, rồi theo tên
+                cur["grp"] = ((first_grp.get(codes[0]) if codes else None) or name_grp.get(cname.lower())
+                              or next((code_grp[x] for x in codes if x in code_grp), None))
+                cur["key"] = (grp_entries[cur["grp"]][0]["customer_code"] if cur["grp"] else (codes[0] if codes else ""))
+                cur["new_group"] = cur["grp"] is None
+                cur["bad"] = [x for x in codes if x not in known]
+                g0 = snap.get(cur["key"] + "|")
+                if cur["grp"] and g0:                             # sửa STT / tên / người phụ trách của khách đã có
+                    sets, vals = [], []
+                    if owner != _norm(g0.get("owner")):
+                        sets.append("owner=?"); vals.append(owner)
+                    if cur["stt"] and cur["stt"] != g0.get("stt"):
+                        sets.append("stt=?"); vals.append(cur["stt"])
+                    if cname and cname != _norm(g0.get("name")) and cname.lower() not in name_grp:
+                        sets.append("grp=?"); vals.append(cname)
+                    if sets:
+                        con.execute(f"UPDATE campaign_entries SET {', '.join(sets)} WHERE grp=?", (*vals, cur["grp"]))
+                        updated.append(f"{cur['grp']}: " + ", ".join(x.split("=")[0].replace("owner", "người phụ trách").replace("stt", "STT").replace("grp", "tên") for x in sets))
+                        if "grp=?" in sets:
+                            grp_entries[cname] = grp_entries.pop(cur["grp"]); name_grp[cname.lower()] = cname
+                            first_grp[grp_entries[cname][0]["customer_code"]] = cname
+                            for e in grp_entries[cname]:
+                                code_grp[e["customer_code"]] = cname
+                            cur["grp"] = cname
+            if cur is None or not _norm(v[4]):
+                continue
+            read += 1
+            progs = _programs_of(v[4])
+            if not progs:
+                skipped.append(f"{cur['name'] or cur['codes']}: không nhận ra chương trình “{_norm(v[4])}”")
+                continue
+            row = {"reward": _norm(v[5]), "registered": _norm(v[6]), "start": _date_of(v[7]), "end": _date_of(v[8]),
+                   "paid": _norm(v[10]), "year_end": _norm(v[11]), "note": _norm(v[13])}
+            main = campaign.row_of(progs[0])
+            if cur["new_group"]:
+                good = [x for x in cur["codes"] if x in known]
+                if not good:
+                    skipped.append(f"{cur['name'] or '(không tên)'}: mã KH “{', '.join(cur['codes']) or 'trống'}” không có trên KiotViet")
+                    continue
+                grp = cur["name"] or known[good[0]]
+                stt = cur["stt"] or (con.execute("SELECT COALESCE(MAX(stt),0)+1 FROM campaign_entries").fetchone()[0])
+                cur["stt"] = stt
+                for i, code in enumerate(good):
+                    for p in progs:
+                        if not con.execute("SELECT 1 FROM campaign_entries WHERE grp=? AND customer_code=? AND program=?", (grp, code, p)).fetchone():
+                            insert(grp, stt, code, p, row["start"], row if (i == 0 and p == progs[0]) else {**row, **{k: "" for k in ROW_FIELDS}},
+                                   cur["owner"], "" if i == 0 else known[code])
+                continue
+            grp = cur["grp"]
+            mine = [e for e in grp_entries.get(grp, []) if campaign.row_of(e["program"]) == main]
+            have_codes = {e["customer_code"] for e in grp_entries.get(grp, [])}
+            stt = (grp_entries.get(grp) or [{}])[0].get("stt") or cur["stt"]
+            first_code = next((x for x in cur["codes"] if x in have_codes), None) or (grp_entries[grp][0]["customer_code"])
+            if not mine:                                          # khách đã có, thêm chương trình mới
+                for p in progs:
+                    insert(grp, stt, first_code, p, row["start"], row if p == progs[0] else {**row, **{k: "" for k in ROW_FIELDS}}, cur["owner"])
+                continue
+            for p in progs[1:] + ([progs[0]] if progs[0] != main else []):   # thêm phần cộng chung (Enzym, Retinal) vào dòng đã có
+                if not any(e["program"] == p for e in mine):
+                    insert(grp, stt, mine[0]["customer_code"], p, row["start"] or (mine[0]["start_at"] or "")[:10],
+                           {**row, **{k: "" for k in ROW_FIELDS}}, cur["owner"])
+            for code in cur["codes"]:                             # thêm mã khách chạy chung vào team
+                if code in known and code not in have_codes:
+                    insert(grp, stt, code, main, row["start"] or (mine[0]["start_at"] or "")[:10],
+                           {**row, **{k: "" for k in ROW_FIELDS}}, cur["owner"], known[code])
+            s0 = snap.get(f"{cur['key']}|{main}")
+            if not s0:
+                continue                                          # chưa có mốc so sánh: không ghi đè số của CRM
+            head = next((e for e in mine if e["program"] == main), mine[0])
+            ch = []
+            for k in ROW_FIELDS:
+                new, was = row[k], _norm(s0.get(k))
+                if new.upper() != was.upper() if k == "reward" else new != was:
+                    con.execute(f"UPDATE campaign_entries SET {k}=? WHERE id=?", (new, head["id"]))
+                    con.execute(f"UPDATE campaign_entries SET {k}='' WHERE id IN ({','.join('?' * len(mine))}) AND id<>?",
+                                (*[e["id"] for e in mine], head["id"]))
+                    ch.append({"reward": "thưởng", "registered": "số khách ĐK", "paid": "đã trả thưởng", "year_end": "trả thưởng cuối năm", "note": "note"}[k])
+            if row["start"] != (s0.get("start") or ""):
+                if row["start"]:
+                    con.execute(f"""UPDATE campaign_entries SET start_at=? WHERE id IN ({','.join('?' * len(mine))})
+                                    AND (start_at IS NULL OR substr(start_at,1,10)=?)""",
+                                (row["start"] + " 00:00:00", *[e["id"] for e in mine], s0.get("start") or ""))
+                    ch.append("ngày bắt đầu")
+            if row["end"] != (s0.get("end") or ""):
+                con.execute(f"UPDATE campaign_entries SET end_at=? WHERE id IN ({','.join('?' * len(mine))})",
+                            ((row["end"] + " 23:59:59") if row["end"] else None, *[e["id"] for e in mine]))
+                ch.append("ngày kết thúc")
+            if ch:
+                updated.append(f"{grp} · {campaign.PROGRAMS[main]['name']}: " + ", ".join(ch))
+    if added or updated:
+        log.info("nhận từ sheet (%s): thêm %d, sửa %d", by, len(added), len(updated))
+    return {"added": added, "updated": updated, "skipped": skipped, "read": read, "at": now}
+
+
+def pull_only(by=""):
+    """Chỉ nhận thay đổi từ sheet, không dựng lại file."""
+    sid = sheet_id()
+    if not sid:
+        raise ConfigError("Chưa khai báo file Google Sheet để xuất thưởng chiến dịch.")
+    try:
+        with gsheet._client(gsheet._token(gsheet.config_account())) as c:
+            res = pull(c, sid, by)
+    except ConfigError:
+        raise
+    except Exception as e:
+        log.exception("nhận từ sheet thất bại")
+        raise ConfigError(f"{type(e).__name__}: {e}")
+    if res["added"] or res["updated"]:
+        # mốc so sánh mới = trạng thái CRM sau khi nhận, để lần sau không áp lại cùng thay đổi
+        db.set_meta(SNAP_KEY, json.dumps(_snapshot(campaign.compute(None, None)["groups"]), ensure_ascii=False))
+    return res
+
+
 def _get(c, url, params=None):
     r = c.get(url, params=params or [])
     if r.status_code == 403:
@@ -440,7 +651,7 @@ def _vn(ts):
         return ts or ""
 
 
-def run(until=None, replace=False):
+def run(until=None, replace=False, by=""):
     sid = sheet_id()
     if not sid:
         raise ConfigError("Chưa khai báo file Google Sheet để xuất thưởng chiến dịch.")
@@ -458,6 +669,7 @@ def run(until=None, replace=False):
             if has_data and not replace:
                 raise ConfigError("File xuất đã có dữ liệu lần trước. Tick \"ghi đè\" để dựng lại toàn bộ file.")
 
+            pulled = pull(c, sid, by) if has_data else {"added": [], "updated": [], "skipped": []}   # nhận sửa đổi trên sheet trước khi ghi đè
             d = campaign.compute(None, until)
             groups = d["groups"]
             entries = [e for e in db.rows("SELECT * FROM campaign_entries ORDER BY stt, grp, id") if e["program"] in campaign.PROGRAMS]
@@ -499,9 +711,10 @@ def run(until=None, replace=False):
             if meta.get("properties", {}).get("title", "").startswith(("Bảng tính không có tiêu đề", "Untitled")):
                 _batch(c, sid, [{"updateSpreadsheetProperties": {"properties": {"title": "THƯỞNG CHIẾN DỊCH - XUẤT TỪ CRM"},
                                                                   "fields": "title"}}], "đặt tên file")
+        db.set_meta(SNAP_KEY, json.dumps(_snapshot(groups), ensure_ascii=False))
         log.info("đã xuất thưởng chiến dịch: %d tab", len(order))
         return {"url": f"https://docs.google.com/spreadsheets/d/{sid}/edit#gid={TONG_ID}", "tabs": len(order),
-                "groups": len(groups), "until": until, "totals": d["totals"]}
+                "groups": len(groups), "until": until, "totals": d["totals"], "pulled": pulled}
     except ConfigError:
         raise
     except Exception as e:

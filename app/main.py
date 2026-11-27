@@ -303,6 +303,51 @@ def r_journey(from_d: str = Query(None, alias="from"), to_d: str = Query(None, a
     return reports.order_journey(f, t, sale_scope(user, sale))
 
 
+@app.get("/api/report/birthdays/month")
+def r_birthday_month(ym: str = None, sale: str = None, user=Depends(current_user)):
+    return reports.birthday_month(ym, sale_scope(user, sale))
+
+
+@app.post("/api/report/birthdays/gift")
+async def r_birthday_gift(request: Request, user=Depends(current_user)):
+    """Ghi theo dõi quà sinh nhật của một khách trong một năm: có tặng không, quà gì, dự trù, tổng chi, VAT, ảnh, hoá đơn."""
+    b = await request.json()
+    try:
+        cid, year = int(b.get("customer_id")), int(b.get("year"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Thiếu khách hoặc năm")
+    c = db.one(f"SELECT {reports.sale_expr()} sale FROM customers c WHERE id=?", (cid,))
+    if not c or not allowed(user, c["sale"]):
+        raise HTTPException(404, "Không tìm thấy khách")
+
+    def money(k):
+        try:
+            return max(0.0, float(b.get(k) or 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Số tiền không hợp lệ")
+
+    def link(k):
+        v = (b.get(k) or "").strip()
+        if v and not v.lower().startswith(("http://", "https://")):
+            raise HTTPException(400, "Ảnh và hoá đơn cần dán đường link (bắt đầu bằng https://)")
+        return v[:1000]
+
+    vals = (1 if b.get("gift") else 0, (b.get("gift_name") or "").strip()[:200], money("budget"), money("spent"),
+            1 if b.get("vat") else 0, link("photo"), link("invoice_link"), (b.get("note") or "").strip()[:1000],
+            datetime.now().isoformat(timespec="seconds"), user["display_name"])
+    with db.cursor() as con:
+        con.execute("""INSERT INTO birthday_gifts(customer_id,year,gift,gift_name,budget,spent,vat,photo,invoice_link,note,updated,updated_by)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(customer_id,year) DO UPDATE SET gift=excluded.gift, gift_name=excluded.gift_name,
+            budget=excluded.budget, spent=excluded.spent, vat=excluded.vat, photo=excluded.photo, invoice_link=excluded.invoice_link,
+            note=excluded.note, updated=excluded.updated, updated_by=excluded.updated_by""", (cid, year) + vals)
+    return {"ok": True}
+
+
+@app.get("/api/report/products/expiry")
+def r_expiry(user=Depends(current_user)):
+    return reports.stock_watch()
+
+
 @app.get("/api/report/birthdays")
 def r_birthdays(days: int = 30, sale: str = None, user=Depends(current_user)):
     return reports.birthdays(days, sale_scope(user, sale))
@@ -534,15 +579,20 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
                         ("gap", "Còn thiếu", M), ("next", "Tới mốc"), ("last", "Đơn gần nhất"),
                         ("paid", "Đã trả thưởng"), ("note", "Ghi chú")], campaign.export_sheets(user)))
     elif report == "debts":
-        d = reports.debt_aging(s)
+        d = reports.debt_aging(s, ym)
+        mm = f"{d['ym'][5:]}/{d['ym'][:4]}"
         sheets.append(("Cong no", [("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"), ("sale", "Sale"),
-                        ("debt", "Tổng nợ", M), ("b0", "0-30 ngày", M), ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M),
-                        ("b3", "Trên 90 ngày", M), ("overdue", f"Quá hạn (>{d['term']} ngày)", M),
-                        ("oldest_days", "Khoản cũ nhất (ngày)"), ("last_purchase", "Mua gần nhất"),
+                        ("opening", f"Nợ đầu tháng {mm}", M), ("bought", "Mua trong tháng", M), ("returned", "Trả hàng", M),
+                        ("paid", "Đã thanh toán", M), ("closing", "Còn nợ cuối tháng" if not d["is_current"] else "Còn nợ hiện tại", M),
+                        ("oldest_date", "Ngày nợ (HĐ cũ nhất còn nợ)"), ("term", "Hạn nợ (ngày)"), ("due_date", "Ngày đến hạn"),
+                        ("overdue", "Quá hạn (tiền)", M), ("overdue_days", "Quá hạn (ngày)"),
+                        ("b0", "0-30 ngày", M), ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M), ("b3", "Trên 90 ngày", M),
+                        ("last_pay", "Thanh toán gần nhất"), ("last_purchase", "Mua gần nhất"),
                         ("days_since_last", "Số ngày chưa mua")], d["rows"]))
-        sheets.append(("Theo sale", [("sale", "Sale"), ("customers", "Số KH nợ"), ("debt", "Tổng nợ", M), ("b0", "0-30 ngày", M),
-                        ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M), ("b3", "Trên 90 ngày", M),
-                        ("overdue", "Quá hạn", M)], d["by_sale"]))
+        sheets.append(("Theo sale", [("sale", "Sale"), ("customers", "Số KH còn nợ"), ("opening", "Nợ đầu tháng", M),
+                        ("bought", "Mua trong tháng", M), ("returned", "Trả hàng", M), ("paid", "Đã thanh toán", M),
+                        ("debt", "Còn nợ hiện tại", M), ("overdue", "Quá hạn", M), ("b0", "0-30 ngày", M),
+                        ("b1", "31-60 ngày", M), ("b2", "61-90 ngày", M), ("b3", "Trên 90 ngày", M)], d["by_sale"]))
     elif report == "board":
         if not is_mgr(user):
             raise HTTPException(403)
@@ -566,6 +616,26 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
         sheets.append(("HD da huy", [("code", "Mã HĐ"), ("d", "Ngày"), ("customer", "Khách hàng"),
                                      ("sale", "Người bán"), ("total", "Giá trị", M)],
                        reports.cancelled_invoices(f, t)))
+    elif report == "birthday_gifts":
+        d = reports.birthday_month(ym, s)
+        rows = [dict(r, gift_txt="Có" if r["gift"] else "", vat_txt="Có" if r["vat"] else "") for r in d["rows"] if kind != "gift" or r["gift"]]
+        sheets.append((f"Qua sinh nhat {d['ym']}", [("birthday_ddmm", "Sinh nhật"), ("code", "Mã KH"), ("name", "Tên KH"), ("contact_number", "SĐT"),
+                        ("sale", "Sale"), ("revenue_12m", "DS 12 tháng", M), ("lifetime_revenue", "DS tích luỹ", M), ("gift_txt", "Tặng quà"),
+                        ("gift_name", "Quà tặng"), ("budget", "Dự trù", M), ("spent", "Tổng chi", M), ("vat_txt", "Có VAT"),
+                        ("photo", "Link ảnh"), ("invoice_link", "Link hoá đơn"), ("note", "Ghi chú"), ("updated_by", "Người cập nhật")], rows))
+    elif report == "expiry":
+        d = reports.stock_watch()
+        band = {k: v["label"] for k, v in d["bands"].items()}
+        sheets.append(("Can date", [("code", "Mã hàng"), ("name", "Tên hàng"), ("category_name", "Nhóm hàng"), ("trade_mark", "Thương hiệu / nhãn"),
+                        ("batch", "Lô"), ("expire_date", "Hạn sử dụng"), ("days_left", "Còn (ngày)"), ("band_txt", "Tình trạng"),
+                        ("on_hand", "Tồn lô"), ("value", "Giá trị tồn", M), ("qty_per_day", "Bán/ngày (30 ngày)"),
+                        ("sell_days", "Bán hết sau (ngày)"), ("unsold", "Dự kiến còn lại khi hết hạn"), ("last_sold", "Bán gần nhất")],
+                       [dict(b, band_txt=band[b["band"]]) for b in d["batches"]]))
+        sheets.append(("Ton lau", [("code", "Mã hàng"), ("name", "Tên hàng"), ("category_name", "Nhóm hàng"), ("trade_mark", "Thương hiệu / nhãn"),
+                        ("on_hand", "Tồn"), ("value", "Giá trị tồn", M), ("last_sold", "Bán gần nhất"), ("days_since_sold", "Số ngày chưa bán"),
+                        ("created_date", "Ngày tạo mã"), ("expire_date", "Hạn gần nhất")], d["stale"]))
+        sheets.append(("Chua co lo han", [("code", "Mã hàng"), ("name", "Tên hàng"), ("trade_mark", "Thương hiệu / nhãn"), ("on_hand", "Tồn"),
+                        ("value", "Giá trị tồn", M)], d["no_batch"]))
     elif report == "birthdays":
         sheets.append(("Sinh nhat", [("next_birthday", "Ngày SN"), ("days_until", "Còn (ngày)"), ("code", "Mã KH"), ("name", "Tên"), ("contact_number", "SĐT"),
                         ("age", "Tuổi"), ("sale", "Sale"), ("last_purchase", "Mua gần nhất"), ("lifetime_revenue", "DS tích luỹ", M)], reports.birthdays(days, s)))

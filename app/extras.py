@@ -2,7 +2,7 @@
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from . import db, reports, config
-from .main_auth import current_user, scope, allowed, col_in, is_mgr, team_names, task_names, task_cond, task_key
+from .main_auth import current_user, scope, allowed, col_in, is_mgr, can, team_names, task_names, task_cond, task_key
 
 router = APIRouter(prefix="/api")
 
@@ -493,23 +493,71 @@ async def boss_save(request: Request, user=Depends(current_user)):
 # Công nợ & tuổi nợ
 # ===========================================================================
 @router.get("/debts")
-def debts_get(sale: str = None, user=Depends(current_user)):
-    return reports.debt_aging(scope(user, sale))
+def debts_get(sale: str = None, ym: str = None, user=Depends(current_user)):
+    d = reports.debt_aging(scope(user, sale), ym)
+    for r in d["rows"]:
+        r.pop("open_invoices", None)             # chi tiết từng hoá đơn chỉ tải khi mở một khách
+    return d
+
+
+@router.get("/debts/customer/{cid}")
+def debts_customer(cid: int, ym: str = None, user=Depends(current_user)):
+    d = reports.debt_detail(cid, ym)
+    if not d or not allowed(user, d["customer"]["sale"]):
+        raise HTTPException(404, "Không tìm thấy khách")
+    return d
 
 
 @router.post("/debts/term")
 async def debts_term(request: Request, user=Depends(current_user)):
+    """Hạn nợ chung (30/60/90 ngày) hoặc hạn riêng của một khách (customer_id + days; days trống = dùng lại hạn chung)."""
     if not is_mgr(user):
         raise HTTPException(403)
     b = await request.json()
     try:
         v = int(b.get("days"))
     except (TypeError, ValueError):
-        v = 0
+        v = None
+    cid = b.get("customer_id")
+    if cid:
+        with db.cursor() as con:
+            if v is None:
+                con.execute("DELETE FROM debt_terms WHERE customer_id=?", (cid,))
+            elif not 0 <= v <= 365:
+                raise HTTPException(400, "Hạn nợ riêng từ 0 đến 365 ngày")
+            else:
+                con.execute("""INSERT INTO debt_terms(customer_id,days,note,updated,updated_by) VALUES(?,?,?,?,?)
+                    ON CONFLICT(customer_id) DO UPDATE SET days=excluded.days, note=excluded.note, updated=excluded.updated,
+                    updated_by=excluded.updated_by""", (cid, v, (b.get("note") or "").strip(), _now(), user["display_name"]))
+        return {"ok": True}
     if v not in (30, 60, 90):
-        raise HTTPException(400, "Hạn nợ chỉ nhận 30, 60 hoặc 90 ngày")
+        raise HTTPException(400, "Hạn nợ chung chỉ nhận 30, 60 hoặc 90 ngày")
     db.set_meta("debt_term_days", str(v))
     return {"ok": True, "term": v}
+
+
+@router.get("/debts/sheet")
+def debts_sheet_status(user=Depends(current_user)):
+    from . import debt_sheet
+    return debt_sheet.status()
+
+
+@router.post("/debts/sheet")
+async def debts_sheet(request: Request, user=Depends(current_user)):
+    """Xuất công nợ của tháng đang xem ra file Google Sheet riêng (ghi đè tab của tháng đó)."""
+    from . import debt_sheet, gsheet
+    if not can(user, "export"):
+        raise HTTPException(403, "Tài khoản chưa được cấp quyền xuất dữ liệu")
+    b = await request.json()
+    if b.get("action") == "config":
+        if not is_mgr(user):
+            raise HTTPException(403)
+        db.set_meta("debt_sheet_id", (b.get("sheet") or "").strip())
+        return debt_sheet.status()
+    try:
+        return debt_sheet.run(b.get("ym"), scope(user, b.get("sale")))
+    except gsheet.ConfigError as e:
+        raise HTTPException(400, str(e))
 
 
 # ===========================================================================
@@ -526,6 +574,15 @@ def alerts(user=Depends(current_user)):
         out.append({"key": "debt", "level": "bad", "n": d["overdue_customers"], "amount": d["overdue"], "href": "#debts",
                     "title": "Khách nợ quá hạn", "note": f"quá {d['term']} ngày"
                     + (f" · {d['risk_customers']} khách đã ngừng mua trên 60 ngày" if d["risk_customers"] else "")})
+
+    if "products" in (user.get("pages") or []):
+        w = reports.stock_watch()
+        near = [b for b in w["batches"] if b["band"] in ("expired", "m3", "m6")]
+        if near:
+            exp = sum(1 for b in near if b["band"] == "expired")
+            out.append({"key": "expiry", "level": "bad" if exp else "warn", "n": len(near), "amount": sum(b["value"] for b in near),
+                        "href": "#products", "title": "Lô hàng cận date",
+                        "note": "còn hạn dưới 6 tháng" + (f" · {exp} lô đã hết hạn" if exp else "") + " · số tiền là giá trị tồn"})
 
     c, p = task_cond(user, "assigned_to")
     n = db.one(f"SELECT COUNT(*) n FROM tasks WHERE status='open' AND due_date<? {c}", (today.isoformat(),) + p)["n"]

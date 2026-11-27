@@ -45,7 +45,8 @@ API_PAGES = (("/api/overview", "overview"), ("/api/alerts", "overview"), ("/api/
              ("/api/tasks", "tasks debts leads customers"), ("/api/kpi", "kpi"), ("/api/campaign", "campaign"),
              ("/api/events", "events"), ("/api/leads", "leads"), ("/api/debts", "debts"))
 EXPORT_PAGES = {"sales": "sales", "trend": "trend", "trend_list": "trend", "customers": "customers", "products": "products",
-                "journey": "journey", "campaign": "campaign", "debts": "debts", "board": "board", "birthdays": "birthdays"}
+                "journey": "journey", "campaign": "campaign", "debts": "debts", "board": "board", "birthdays": "birthdays",
+                "birthday_gifts": "birthdays", "expiry": "products"}
 PBKDF2_ROUNDS = 120_000
 
 
@@ -193,14 +194,28 @@ def team_names(user):
     return names if me in names else names + [me]
 
 
+def pick_sales(sale):
+    """Ô lọc sale gửi lên một tên hoặc nhiều tên cách nhau bởi dấu | -> danh sách tên (rỗng = không lọc)."""
+    if not sale:
+        return []
+    if isinstance(sale, (list, tuple)):
+        return [x for x in sale if x]
+    return [x.strip() for x in str(sale).split("|") if x.strip()]
+
+
 def scope(user, sale=None):
-    """Bộ lọc sale áp cho báo cáo: None (tất cả) | 'tên' | [danh sách tên]."""
+    """Bộ lọc sale áp cho báo cáo: None (tất cả) | 'tên' | [danh sách tên]. Lọc được nhiều sale cùng lúc."""
+    pick = pick_sales(sale)
     names = team_names(user)
-    if names is None:
-        return sale or None
-    if len(names) == 1:
-        return names[0]
-    return sale if sale and sale in names else names
+    if names is not None:
+        if len(names) == 1:
+            return names[0]
+        pick = [p for p in pick if p in names]
+        if not pick:
+            return names
+    if not pick:
+        return None
+    return pick[0] if len(pick) == 1 else pick
 
 
 def task_key(user):
@@ -223,10 +238,12 @@ def task_names(user):
 def task_cond(user, col, who=None):
     """Điều kiện SQL lọc việc theo người xem; who = lọc thêm một người (chỉ khi người đó nằm trong phạm vi)."""
     names = task_names(user)
+    who = pick_sales(who)
     if names is None:
-        return (f" AND {col}=?", (who,)) if who else ("", ())
-    if who and who in names:
-        names = [who]
+        return (f" AND {col} IN ({','.join('?' * len(who))})", tuple(who)) if who else ("", ())
+    who = [w for w in who if w in names]
+    if who:
+        names = who
     return f" AND {col} IN ({','.join('?' * len(names))})", tuple(names)
 
 

@@ -117,7 +117,7 @@ class KiotClient:
         return self.get("customers/group").get("data", [])
 
     def products(self, last_modified_from=None):
-        p = {"includeInventory": "true", "includeTotal": "true"}
+        p = {"includeInventory": "true", "includeTotal": "true", "includeBatchExpires": "true"}
         if last_modified_from:
             p["lastModifiedFrom"] = last_modified_from
         return self.iter_pages("products", p)
@@ -151,3 +151,24 @@ class KiotClient:
         if to_date:
             p["toPurchaseDate"] = to_date
         return self.iter_pages("orders", p)
+
+    def cashflow(self, start_date, end_date, partner_type="C", page_size=100):
+        """Phiếu thu / chi trên sổ quỹ trong khoảng ngày (yyyy-mm-dd), mặc định chỉ của khách hàng.
+        API này không nhận orderBy (báo 400) nên tự lật trang theo thứ tự mặc định (mới nhất trước);
+        lùi lại vài dòng mỗi trang để phiếu vừa lập trong lúc tải không làm sót phiếu."""
+        p = {"includeTotal": "true", "startDate": start_date, "endDate": end_date, "pageSize": page_size}
+        if partner_type:
+            p["partnerType"] = partner_type
+        seen, current = set(), 0
+        while True:
+            p["currentItem"] = max(0, current - 5)
+            j = self.get("cashflow", p)
+            data = j.get("data") or []
+            for item in data:
+                if item.get("id") not in seen:
+                    seen.add(item.get("id"))
+                    yield item
+            current = p["currentItem"] + len(data)
+            if len(data) < page_size or current >= (j.get("total") or 0):
+                break
+            time.sleep(0.25)

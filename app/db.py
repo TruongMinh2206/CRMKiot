@@ -199,6 +199,26 @@ CREATE TABLE IF NOT EXISTS work_recurring (
   hours REAL DEFAULT 1, cycle TEXT, weekday INTEGER, monthday INTEGER, due_time TEXT DEFAULT '23:59', active INTEGER DEFAULT 1,
   last_on TEXT, created TEXT, ext TEXT        -- ext: mã mẫu bên Google Sheet (DK-xx)
 );
+
+-- Phiếu thu / chi của khách trên sổ quỹ KiotViet (để biết khách đã trả bao nhiêu công nợ)
+CREATE TABLE IF NOT EXISTS cashflow (
+  id INTEGER PRIMARY KEY, code TEXT, trans_date TEXT, amount REAL, partner_id INTEGER, method TEXT,
+  cash_group TEXT, status INTEGER, status_value TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_cashflow_partner ON cashflow(partner_id, trans_date);
+-- Lô / hạn sử dụng của hàng hoá trên KiotViet (nạp lại toàn bộ mỗi lần đồng bộ)
+CREATE TABLE IF NOT EXISTS product_batches (
+  batch_id INTEGER, product_id INTEGER, batch_name TEXT, expire_date TEXT, on_hand REAL, branch_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_batches_product ON product_batches(product_id);
+-- Hạn nợ riêng của từng khách (số ngày được nợ); khách không có dòng ở đây dùng hạn chung
+CREATE TABLE IF NOT EXISTS debt_terms (customer_id INTEGER PRIMARY KEY, days INTEGER, note TEXT, updated TEXT, updated_by TEXT);
+-- Quà sinh nhật: mỗi khách một dòng cho mỗi năm
+CREATE TABLE IF NOT EXISTS birthday_gifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, year INTEGER, gift INTEGER DEFAULT 0, gift_name TEXT,
+  budget REAL DEFAULT 0, spent REAL DEFAULT 0, vat INTEGER DEFAULT 0, photo TEXT, invoice_link TEXT, note TEXT,
+  updated TEXT, updated_by TEXT, UNIQUE(customer_id, year)
+);
 """
 
 
@@ -240,6 +260,7 @@ def init():
         if "trade_mark" not in dcols:
             con.execute("ALTER TABLE invoice_details ADD COLUMN trade_mark TEXT")
         for t, adds in (("crm_users", ("dept TEXT", "active INTEGER DEFAULT 1", "ver INTEGER DEFAULT 0", "created TEXT", "last_login TEXT")),
+                        ("campaign_entries", ("year_end TEXT",)),
                         ("events", ("goal TEXT", "targets TEXT", "lessons TEXT", "source_id INTEGER")),
                         ("event_tasks", ("deps TEXT", "kpi TEXT", "gate INTEGER DEFAULT 0", "done_at TEXT"))):
             have = [r[1] for r in con.execute(f"PRAGMA table_info({t})")]
