@@ -375,6 +375,13 @@ def r_expiry(user=Depends(current_user)):
     return reports.stock_watch()
 
 
+@app.get("/api/report/products/exclusive")
+def r_exclusive(from_d: str = Query(None, alias="from"), to_d: str = Query(None, alias="to"), sale: str = None, boss: str = "all",
+                user=Depends(current_user)):
+    f, t = _dates(from_d, to_d)
+    return reports.exclusive(f, t, sale_scope(user, sale), boss)
+
+
 @app.get("/api/report/birthdays")
 def r_birthdays(days: int = 30, sale: str = None, user=Depends(current_user)):
     return reports.birthdays(days, sale_scope(user, sale))
@@ -650,6 +657,31 @@ def export(report: str, from_d: str = Query(None, alias="from"), to_d: str = Que
                         ("sale", "Sale"), ("revenue_12m", "DS 12 tháng", M), ("lifetime_revenue", "DS tích luỹ", M), ("gift_txt", "Tặng quà"),
                         ("gift_name", "Quà tặng"), ("budget", "Dự trù", M), ("spent", "Tổng chi", M), ("vat_txt", "Có VAT"),
                         ("photo", "Link ảnh"), ("invoice_link", "Link hoá đơn"), ("note", "Ghi chú"), ("updated_by", "Người cập nhật")], rows))
+    elif report == "exclusive":
+        d = reports.exclusive(f, t, s, kind or "all")
+        Q = [("new_qty", "SL độc quyền mới"), ("new_rev", "DT độc quyền mới", M), ("old_qty", "SL độc quyền cũ"),
+             ("old_rev", "DT độc quyền cũ", M), ("qty", "Tổng SL"), ("rev", "Tổng doanh thu", M)]
+        sheets.append(("Tong hop", [("label", "Nhóm hàng"), ("products", "Số mã có bán"), ("customers", "Số khách mua"), ("qty", "Số lượng"),
+                        ("rev", "Doanh thu", M), ("ret_qty", "SL trả lại"), ("ret_rev", "Tiền hàng trả", M)],
+                       d["groups"] + [{"label": "TỔNG", "qty": d["total"]["qty"], "rev": d["total"]["rev"],
+                                       "ret_qty": sum(g["ret_qty"] for g in d["groups"]), "ret_rev": sum(g["ret_rev"] for g in d["groups"])}]))
+        sheets.append(("Theo thang", [("ym", "Tháng")] + Q, d["months"]))
+        rows = []
+        for T in d["teams"]:
+            rows.append(dict(T, team="TEAM " + T["team"], sale="TỔNG TEAM"))
+            rows += T["sales"]
+        rows.append(dict(d["total"], team="TỔNG CỘNG", sale=""))
+        sheets.append(("Theo team - sale", [("team", "Team"), ("sale", "Sale")] + Q + [("boss_rev", "Trong đó khách sếp", M)], rows))
+        rows = []
+        for T in d["teams"]:
+            for S in T["sales"]:
+                for ym in sorted(S["by_month"]):
+                    rows.append(dict(S["by_month"][ym], team=S["team"], sale=S["sale"], ym=ym))
+        sheets.append(("Sale theo thang", [("ym", "Tháng"), ("team", "Team"), ("sale", "Sale")] + Q, rows))
+        sheets.append(("Theo thuong hieu", [("group_label", "Nhóm hàng"), ("brand", "Thương hiệu"), ("products", "Số mã"), ("qty", "Số lượng"),
+                        ("rev", "Doanh thu", M)], d["brands"]))
+        sheets.append(("Theo ma hang", [("code", "Mã hàng"), ("name", "Tên hàng"), ("group_label", "Nhóm hàng"), ("brand", "Thương hiệu"),
+                        ("qty", "Số lượng"), ("price", "Giá bán TB", M), ("rev", "Doanh thu", M), ("invoices", "Số dòng HĐ")], d["products"]))
     elif report == "expiry":
         d = reports.stock_watch()
         band = {k: v["label"] for k, v in d["bands"].items()}

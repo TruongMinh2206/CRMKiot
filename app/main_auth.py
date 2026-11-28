@@ -46,7 +46,7 @@ API_PAGES = (("/api/overview", "overview"), ("/api/alerts", "overview"), ("/api/
              ("/api/events", "events"), ("/api/leads", "leads"), ("/api/debts", "debts"))
 EXPORT_PAGES = {"sales": "sales", "trend": "trend", "trend_list": "trend", "customers": "customers", "products": "products",
                 "journey": "journey", "campaign": "campaign", "debts": "debts", "board": "board", "birthdays": "birthdays",
-                "birthday_gifts": "birthdays", "expiry": "products"}
+                "birthday_gifts": "birthdays", "expiry": "products", "exclusive": "products"}
 PBKDF2_ROUNDS = 120_000
 
 

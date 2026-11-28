@@ -1029,3 +1029,116 @@ def boss_daily(from_d, to_d):
             "day_total": [sum(r["daily"][i] for r in counted) for i in range(len(days))],
             "total": sum(r["total"] for r in counted), "gross": sum(r["gross"] for r in counted),
             "returns": sum(r["returns"] for r in counted)}
+
+
+# ---------------------------------------------------------------------------
+# HÀNG ĐỘC QUYỀN: số lượng + doanh thu độc quyền mới / cũ — tổng, theo tháng, theo mã, theo team -> sale
+#   Nhóm hàng lấy theo nhãn hiệu KiotViet (ánh xạ trong Cài đặt), sale = sale phụ trách khách.
+#   Doanh thu là tiền hàng trên hoá đơn hoàn thành (chưa trừ hàng trả; hàng trả hiện riêng).
+# ---------------------------------------------------------------------------
+EXCL_BRANDS = (("Dermaxilic", ("dermaxilic",)), ("Krlab", ("krlab", "kr lab")), ("Nghệ", ("turmeric", "nghệ")),
+               ("Eundan", ("eundan",)), ("Medianswer", ("medianswer",)), ("Tiptoe", ("tiptoe", "son tint", "son thỏi")),
+               ("Wonder Bath", ("wonder bath",)), ("Enzym", ("enzym",)), ("Inner", ("inner",)), ("Ronas", ("ronas",)),
+               ("Arbutin", ("arbutin",)))
+EXCL_LABEL = {"excl_new": "Độc quyền mới", "excl_old": "Độc quyền cũ"}
+
+
+def excl_brand(name):
+    n = (name or "").lower()
+    for brand, keys in EXCL_BRANDS:
+        if any(k in n for k in keys):
+            return brand
+    return "Khác"
+
+
+def exclusive(from_d, to_d, sale=None, boss="all"):
+    f, t = from_d + " 00:00:00", to_d + " 23:59:59"
+    cm = cat_map()
+    marks = [k for k, v in cm.items() if v in EXCL_LABEL]
+    if not marks:
+        marks = ["-"]
+    ph = ",".join("?" * len(marks))
+    tm = "COALESCE(NULLIF(d.trade_mark,''), p.trade_mark, '')"
+    sf, sp = _sale_filter(sale)
+    bf = {"sale": " AND COALESCE(c.is_boss,0)=0", "boss": " AND COALESCE(c.is_boss,0)=1"}.get(boss, "")
+    rows = db.rows(f"""SELECT substr(i.purchase_date,1,7) ym, {CUST_EXPR} s, {tm} tm, d.product_id pid,
+            MAX(COALESCE(p.code, d.product_code)) code, MAX(COALESCE(p.name, d.product_name)) name,
+            SUM(d.quantity) qty, SUM(d.sub_total) rev, COUNT(DISTINCT i.customer_id) nc, COUNT(DISTINCT i.id) ni,
+            SUM(CASE WHEN COALESCE(c.is_boss,0)=1 THEN d.sub_total ELSE 0 END) boss_rev
+        FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id
+        LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN products p ON p.id=d.product_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? AND {tm} IN ({ph}) {sf} {bf}
+        GROUP BY 1,2,3,4""", (f, t) + tuple(marks) + sp)
+    rtm = "COALESCE(NULLIF(d.trade_mark,''), p.trade_mark, '')"
+    rets = db.rows(f"""SELECT {rtm} tm, SUM(d.quantity) qty, SUM(d.sub_total) rev FROM return_details d
+        JOIN returns r ON r.id=d.return_id LEFT JOIN customers c ON c.id=r.customer_id LEFT JOIN products p ON p.id=d.product_id
+        WHERE r.return_date BETWEEN ? AND ? AND {rtm} IN ({ph}) {sf} {bf} GROUP BY 1""", (f, t) + tuple(marks) + sp)
+    custs = db.rows(f"""SELECT {tm} tm, COUNT(DISTINCT i.customer_id) n FROM invoice_details d JOIN invoices i ON i.id=d.invoice_id
+        LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN products p ON p.id=d.product_id
+        WHERE {INV_OK} AND i.purchase_date BETWEEN ? AND ? AND {tm} IN ({ph}) {sf} {bf} GROUP BY 1""", (f, t) + tuple(marks) + sp)
+    team_of = {r["sale"]: r["team"] for r in db.rows("SELECT sale, team FROM teams")}
+
+    def blank():
+        return {"new_qty": 0, "new_rev": 0, "old_qty": 0, "old_rev": 0, "qty": 0, "rev": 0}
+
+    def add(o, g, q, v):
+        k = "new" if g == "excl_new" else "old"
+        o[k + "_qty"] += q
+        o[k + "_rev"] += v
+        o["qty"] += q
+        o["rev"] += v
+
+    groups = {k: {"key": k, "label": l, "qty": 0, "rev": 0, "codes": set(), "customers": 0, "ret_qty": 0, "ret_rev": 0}
+              for k, l in EXCL_LABEL.items()}
+    months, brands, prods, sales = {}, {}, {}, {}
+    for r in rows:
+        g, q, v = cm[r["tm"]], r["qty"] or 0, r["rev"] or 0
+        G = groups[g]
+        G["qty"] += q
+        G["rev"] += v
+        G["codes"].add(r["pid"])
+        add(months.setdefault(r["ym"], dict(blank(), ym=r["ym"])), g, q, v)
+        b = excl_brand(r["name"])
+        B = brands.setdefault((g, b), {"group": g, "group_label": EXCL_LABEL[g], "brand": b, "qty": 0, "rev": 0, "codes": set()})
+        B["qty"] += q
+        B["rev"] += v
+        B["codes"].add(r["pid"])
+        P = prods.setdefault(r["pid"], {"code": r["code"], "name": r["name"], "group": g, "group_label": EXCL_LABEL[g],
+                                        "brand": b, "qty": 0, "rev": 0, "invoices": 0})
+        P["qty"] += q
+        P["rev"] += v
+        P["invoices"] += r["ni"]
+        S = sales.setdefault(r["s"], dict(blank(), sale=r["s"], team=team_of.get(r["s"]) or "Chưa xếp team", boss_rev=0, by_month={}))
+        add(S, g, q, v)
+        S["boss_rev"] += r["boss_rev"] or 0
+        add(S["by_month"].setdefault(r["ym"], blank()), g, q, v)
+    for r in rets:
+        G = groups[cm[r["tm"]]]
+        G["ret_qty"] += r["qty"] or 0
+        G["ret_rev"] += r["rev"] or 0
+    for r in custs:
+        groups[cm[r["tm"]]]["customers"] += r["n"]
+    for G in groups.values():
+        G["products"] = len(G.pop("codes"))
+    for B in brands.values():
+        B["products"] = len(B.pop("codes"))
+    for P in prods.values():
+        P["price"] = round(P["rev"] / P["qty"]) if P["qty"] else 0
+    teams = {}
+    for S in sales.values():
+        T = teams.setdefault(S["team"], dict(blank(), team=S["team"], boss_rev=0, sales=[]))
+        for k in blank():
+            T[k] += S[k]
+        T["boss_rev"] += S["boss_rev"]
+        T["sales"].append(S)
+    for T in teams.values():
+        T["sales"].sort(key=lambda s: -s["rev"])
+    total = blank()
+    for g, G in groups.items():
+        add(total, g, G["qty"], G["rev"])
+    return {"from": from_d, "to": to_d, "groups": [groups["excl_new"], groups["excl_old"]], "total": total,
+            "months": [months[k] for k in sorted(months)],
+            "brands": sorted(brands.values(), key=lambda b: (b["group"], -b["rev"])),
+            "products": sorted(prods.values(), key=lambda p: (p["group"], -p["rev"])),
+            "teams": sorted(teams.values(), key=lambda x: (x["team"] in ("Chưa xếp team", "Khác", "Kế toán"), -x["rev"])),
+            "marks": marks}
