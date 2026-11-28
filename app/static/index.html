@@ -298,6 +298,11 @@ table{font-size:13px}th{background:var(--surface);color:var(--muted);font-weight
 .msel{position:relative}.mselp{position:absolute;right:0;top:calc(100% + 4px);z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:10px;width:290px;max-width:86vw}
 .msell{max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:1px;margin:8px 0}.msell label{display:flex;gap:8px;align-items:center;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px}.msell label:hover{background:var(--surface-2)}
 .subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:-6px 0 14px}
+.flabel{display:block;font-size:12px;color:var(--text-2);margin-bottom:5px}
+.fbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.fthumbs{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fthumb{position:relative;display:inline-flex}.fthumb img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block}
+.fthumbs.sm .fthumb img{width:34px;height:34px;border-radius:6px}.ffile{display:inline-grid;place-items:center;width:64px;height:64px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);font-size:12px;font-weight:600;text-decoration:none}
+.fthumbs.sm .ffile{width:34px;height:34px;font-size:10px}.frm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;line-height:1;padding:0}
 </style>
 </head>
 <body>
@@ -917,6 +922,29 @@ async function stockWatch(){
     $('#tb').innerHTML=f.slice(0,800).map(b=>`<tr><td class="muted">${esc(b.code)}</td><td class="name">${esc(b.name)}</td><td>${b.trade_mark?`<span class="tag ${/tồn lâu|cận date/i.test(b.trade_mark)?'warn':''}">${esc(b.trade_mark)}</span>`:''}</td><td>${esc(b.batch)}</td><td>${dmy(b.expire_date)||'<span class="muted">chưa có</span>'}</td><td class="r">${b.days_left??'–'}</td><td><span class="tag ${BT[b.band]}">${B[b.band].label}</span></td><td class="r">${fmt(b.on_hand)}</td><td class="r">${z(b.value)}</td><td class="r">${b.qty_per_day||'<span class="muted">0</span>'}</td><td class="r">${b.sell_days!=null?b.sell_days+' ngày':'<span class="muted">không bán</span>'}</td><td>${b.band==='expired'?'<span class="tag bad">ngừng bán, xử lý</span>':b.wont_sell?`<span class="tag warn">dự kiến dư ${fmt(b.unsold)}</span>`:''}</td></tr>`).join('')||'<tr><td colspan="12" class="empty">Không có lô nào</td></tr>'};
   $('#fQ').oninput=draw;$('#fBand').onchange=draw;draw();sortable('#t',draw);
 }
+// ----- Tải ảnh / hoá đơn lên CRM (ảnh tự thu nhỏ trước khi gửi) -----
+const fList=v=>String(v||'').split('\n').map(x=>x.trim()).filter(Boolean);
+const fIsImg=u=>/\.(jpg|jpeg|png|webp)$/i.test(u.split('?')[0]);
+async function fUpload(file){
+  let blob=file,mime=file.type;
+  if(/^image\//.test(mime)){let bmp;try{bmp=await createImageBitmap(file)}catch(e){throw new Error('Không đọc được ảnh “'+file.name+'”, hãy chọn ảnh khác')}const k=Math.min(1,1600/Math.max(bmp.width,bmp.height));const c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.82));mime='image/jpeg'}
+  else if(mime!=='application/pdf')throw new Error('Chỉ nhận ảnh hoặc file PDF');
+  if(blob.size>4*1024*1024)throw new Error('File lớn hơn 4 MB');
+  const data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(',')[1]);fr.onerror=rej;fr.readAsDataURL(blob)});
+  return (await api('/files',{method:'POST',body:{name:file.name,mime,data}})).url}
+const fThumb=(u,rm)=>`<span class="fthumb">${fIsImg(u)?`<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="ảnh đã tải lên" loading="lazy"></a>`:`<a class="ffile" href="${esc(u)}" target="_blank" rel="noopener">${/\.pdf$/i.test(u)?'PDF':'Link'}</a>`}${rm?`<button type="button" class="frm" data-u="${esc(u)}" title="Bỏ file này" aria-label="Bỏ file này">✕</button>`:''}</span>`;
+function fBox(id,label,val,accept,btn){return `<div style="margin-bottom:12px"><span class="flabel">${label}</span><div class="fbox" id="${id}" data-v="${esc(val||'')}"><div class="fthumbs"></div><button type="button" class="btn small fadd">${btn}</button><input type="file" accept="${accept}" multiple hidden><span class="small muted fmsg"></span></div></div>`}
+function fBoxBind(id){const box=$('#'+id),inp=box.querySelector('input[type=file]'),msg=box.querySelector('.fmsg');
+  const draw=()=>{const L=fList(box.dataset.v);box.querySelector('.fthumbs').innerHTML=L.map(u=>fThumb(u,1)).join('');
+    box.querySelectorAll('.frm').forEach(b=>b.onclick=()=>{box.dataset.v=fList(box.dataset.v).filter(x=>x!==b.dataset.u).join('\n');draw()})};
+  box.querySelector('.fadd').onclick=()=>inp.click();
+  inp.onchange=async()=>{const files=[...inp.files];inp.value='';let n=0;for(const f of files){if(fList(box.dataset.v).length>=8){msg.textContent='Tối đa 8 file';break}
+      msg.textContent=`Đang tải lên ${++n}/${files.length}…`;try{const u=await fUpload(f);box.dataset.v=fList(box.dataset.v).concat([u]).join('\n');draw()}catch(e){msg.textContent=e.message||'Không tải lên được';return}}
+    if(!/Tối đa/.test(msg.textContent))msg.textContent=''};
+  draw()}
+const fVal=id=>$('#'+id).dataset.v||'';
+const fBusy=id=>/Đang tải/.test($('#'+id).querySelector('.fmsg').textContent);
 // ----- Sinh nhật: quà tặng và chi phí theo tháng -----
 function bdTabs(){return `<div class="subtabs">${[['','Sinh nhật sắp tới'],['gifts','Quà tặng & chi phí theo tháng']].map(([k,l])=>`<span class="chip ${(state.bdTab||'')===k?'on':''}" onclick="state.bdTab='${k}';loadPage()">${l}</span>`).join('')}</div>`}
 async function bdGifts(){
@@ -932,7 +960,7 @@ async function bdGifts(){
    <div class="card tile"><h3>Tổng chi thực tế</h3><div class="v" style="color:${T.spent>T.budget&&T.budget?'var(--bad)':'inherit'}">${fmtK(T.spent)}</div><div class="d">${T.with_vat} khoản có VAT (${fmtK(T.spent_vat)})${T.no_invoice?' · '+T.no_invoice+' khoản chưa có hoá đơn':''}</div></div></div>
   <div class="card" style="margin-top:14px"><h3>Khách sinh nhật tháng ${mm} <span class="x">tick “Tặng quà” rồi bấm Sửa để nhập dự trù, tổng chi, ảnh, hoá đơn</span></h3><div class="tablewrap"><table id="t"><thead><tr><th>Sinh nhật</th><th>Khách hàng</th><th>SĐT</th><th>Sale</th><th class="r">DS 12 tháng</th><th>Tặng quà</th><th>Quà</th><th class="r">Dự trù</th><th class="r">Tổng chi</th><th>VAT</th><th>Ảnh</th><th>Hoá đơn</th><th>Ghi chú</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></div>`;
   bindTopbar('birthday_gifts',()=>({ym:d.ym,kind:state.bdOnly?'gift':''}));
-  const lk=(u,t)=>u?`<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`:'<span class="muted">–</span>';
+  const lk=(u,t)=>{const L=fList(u);return L.length?`<span class="fthumbs sm">${L.slice(0,3).map(x=>fThumb(x)).join('')}${L.length>3?`<span class="small muted">+${L.length-3}</span>`:''}</span>`:'<span class="muted">–</span>'};
   const draw=()=>{const q=($('#fQ').value||'').toLowerCase();
     const f=d.rows.filter(r=>(!state.bdOnly||r.gift)&&(!q||(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)||(r.contact_number||'').includes(q)));
     $('#tb').innerHTML=f.map(r=>`<tr><td><b>${r.birthday_ddmm}</b> <span class="small muted">${r.age} tuổi</span></td><td class="name"><a href="#" onclick="openCustomer(${r.id});return false"><b>${esc(r.name)}</b></a>${r.is_boss?' <span class="tag">Khách sếp</span>':''}</td><td>${esc(r.contact_number||'')}</td><td>${esc(r.sale)}</td><td class="r">${fmt(r.revenue_12m)}</td><td><input type="checkbox" ${r.gift?'checked':''} onchange="bdToggle(${r.id},this.checked)" title="Tặng quà cho khách này"></td><td class="name">${esc(r.gift_name)}</td><td class="r">${r.budget?fmt(r.budget):'<span class="muted">–</span>'}</td><td class="r">${r.spent?'<b>'+fmt(r.spent)+'</b>':'<span class="muted">–</span>'}</td><td>${r.vat?'<span class="tag info">Có VAT</span>':''}</td><td>${lk(r.photo,'Xem ảnh')}</td><td>${lk(r.invoice_link,'Hoá đơn')}</td><td class="name small">${esc(r.note)}</td><td><button class="btn small" onclick="bdForm(${r.id})">Sửa</button></td></tr>`).join('')||`<tr><td colspan="14" class="empty">${state.bdOnly?'Chưa tick khách nào được tặng quà trong tháng này':'Không có khách sinh nhật trong tháng này'}</td></tr>`};
@@ -952,12 +980,13 @@ function bdForm(id){const r=window._bd.rows.find(x=>x.id===id);if(!r)return;cons
   ${f('bgName','Quà tặng',r.gift_name,'text','placeholder="vd: hoa + set quà Dermaxilic"')}
   <div class="evgrid">${f('bgBudget','Dự trù kinh phí (đ)',r.budget||'','number','min="0" step="1000"')}${f('bgSpent','Tổng chi thực tế (đ)',r.spent||'','number','min="0" step="1000"')}</div>
   <label class="row" style="gap:8px;margin:0 0 10px;cursor:pointer"><input type="checkbox" id="bgVat" ${r.vat?'checked':''}> Hoá đơn có VAT</label>
-  ${f('bgPhoto','Link ảnh quà / ảnh trao quà (Drive, Zalo…)',r.photo,'url','placeholder="https://"')}${f('bgInv','Link hoá đơn',r.invoice_link,'url','placeholder="https://"')}
+  ${fBox('bgPhoto','Ảnh quà / ảnh trao quà',r.photo,'image/*','＋ Chọn ảnh')}${fBox('bgInv','Hoá đơn (ảnh chụp hoặc file PDF)',r.invoice_link,'image/*,application/pdf','＋ Chọn hoá đơn')}
   <label class="lb">Ghi chú<textarea class="f" id="bgNote">${esc(r.note)}</textarea></label>
   ${r.updated_by?`<p class="small muted">Cập nhật lần cuối: ${esc(r.updated_by)} · ${dmy(r.updated)}</p>`:''}
   <div class="row"><button class="btn primary" id="bgSave">Lưu</button></div>`;
   $('#modal').classList.add('open');
-  $('#bgSave').onclick=async()=>{await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:$('#bgGift').checked?1:0,gift_name:$('#bgName').value,budget:+$('#bgBudget').value||0,spent:+$('#bgSpent').value||0,vat:$('#bgVat').checked?1:0,photo:$('#bgPhoto').value,invoice_link:$('#bgInv').value,note:$('#bgNote').value})});closeModal();toast('Đã lưu');bdRefresh()}}
+  fBoxBind('bgPhoto');fBoxBind('bgInv');
+  $('#bgSave').onclick=async()=>{if(fBusy('bgPhoto')||fBusy('bgInv')){toast('Đợi tải file lên xong rồi lưu');return}await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:$('#bgGift').checked?1:0,gift_name:$('#bgName').value,budget:+$('#bgBudget').value||0,spent:+$('#bgSpent').value||0,vat:$('#bgVat').checked?1:0,photo:fVal('bgPhoto'),invoice_link:fVal('bgInv'),note:$('#bgNote').value})});closeModal();toast('Đã lưu');bdRefresh()}}
 
 async function debts(){
   const d=await api('/debts?sale='+encodeURIComponent(state.user.scope==='own'?'':state.sale)+(state.debtYm?'&ym='+state.debtYm:''));const m=$('#main');const B=d.buckets,M=d.month;window._debts=d.rows;window._debtYm=d.ym;
