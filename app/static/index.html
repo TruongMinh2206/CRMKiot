@@ -363,8 +363,11 @@ const ICONS={
  menu:'<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>'};
 const ic=n=>`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[n]||''}</svg>`;
 async function api(path,opt={}){
+  const nav=state._nav;
   const r=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});
   if(r.status===401&&path!=='/login'){state.user=null;render();throw new Error('401')}
+  // người dùng đã chuyển trang trong lúc chờ: bỏ kết quả tải cũ, không để trang cũ vẽ đè lên trang mới
+  if(!opt.method&&nav!==state._nav&&!document.querySelector('#modal.open'))throw new Error('stale');
   if(!r.ok){let m='Lỗi';try{m=(await r.json()).detail||m}catch{}toast(m);throw new Error(m)}
   return r.json();
 }
@@ -464,8 +467,8 @@ async function boot(){state.page=location.hash.slice(1)||'overview';try{state.sa
 // ============================================================================
 // Pages
 // ============================================================================
-async function loadPage(){const m=$('#main');if(!m)return;m.innerHTML='<div class="empty">Đang tải…</div>';
-  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events,tools,work}[state.page]||overview)()}catch(e){console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
+async function loadPage(){const m=$('#main');if(!m)return;state._nav=(state._nav||0)+1;m.innerHTML='<div class="empty">Đang tải…</div>';
+  try{await ({overview,sales,trend,customers,products,journey,birthdays,settings,tasks,kpi,leads,board,debts,campaign,events,tools,work}[state.page]||overview)()}catch(e){if(e.message==='stale')return;console.error(e);if(e.message!=='401')m.innerHTML=`<div class="empty">Không tải được: ${esc(e.message)}</div>`}}
 
 async function overview(){
   const d=await api('/overview?'+qs());const s=d.summary;const m=$('#main');
@@ -482,7 +485,7 @@ async function overview(){
   </div><div class="card" style="margin-top:14px"><h3>Top 12 sale theo doanh số <span class="x"><a href="#sales">chi tiết</a></span></h3><div class="chart tall"><canvas id="cSale"></canvas></div></div>`;
   bindTopbar();
   api('/alerts').then(al=>{const el=$('#alerts');if(!el||state.page!=='overview')return;al=al.filter(a=>canPage(String(a.href||'').slice(1)));
-    el.innerHTML=`<div class="card" style="margin-top:14px"><h3>Cần xử lý hôm nay <span class="x">tính đến thời điểm đồng bộ gần nhất</span></h3>${al.length?al.map(a=>`<a href="${a.href}" ${a.key==='expiry'?`onclick="state.prodTab='expiry'"`:''} class="task" style="text-decoration:none;color:inherit;align-items:center"><span class="tag ${a.level}" style="min-width:44px;text-align:center;font-size:13px">${fmt(a.n)}</span><div class="t"><b>${esc(a.title)}${a.amount?` · ${fmtK(a.amount)}`:''}</b><span class="small muted">${esc(a.note||'')}</span></div><span class="muted">›</span></a>`).join(''):'<div class="empty">Không có gì cần xử lý gấp.</div>'}</div>`}).catch(()=>{});
+    el.innerHTML=`<div class="card" style="margin-top:14px"><h3>Cần xử lý hôm nay <span class="x">tính đến thời điểm đồng bộ gần nhất</span></h3>${al.length?al.map(a=>`<a href="${a.href}" ${a.key==='expiry'?`onclick="state.prodTab='expiry'"`:a.key==='bdgift'?`onclick="state.bdTab='gifts';state.bdYm=''"`:''} class="task" style="text-decoration:none;color:inherit;align-items:center"><span class="tag ${a.level}" style="min-width:44px;text-align:center;font-size:13px">${fmt(a.n)}</span><div class="t"><b>${esc(a.title)}${a.amount?` · ${fmtK(a.amount)}`:''}</b><span class="small muted">${esc(a.note||'')}</span></div><span class="muted">›</span></a>`).join(''):'<div class="empty">Không có gì cần xử lý gấp.</div>'}</div>`}).catch(()=>{});
   chart('cDaily',{type:'bar',data:{labels:s.daily.map(x=>x.d.slice(8)+'/'+x.d.slice(5,7)),datasets:[{data:s.daily.map(x=>x.rev),backgroundColor:css('--s1'),borderRadius:4,borderSkipped:'bottom'}]},
     options:Object.assign(gridOpt(),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · '+s.daily[c.dataIndex].n+' HĐ'}}}})});
   const sr=(await api('/report/sales?'+qs())).filter(r=>r.revenue>0).slice(0,12);
@@ -918,9 +921,12 @@ async function stockWatch(){
 function bdTabs(){return `<div class="subtabs">${[['','Sinh nhật sắp tới'],['gifts','Quà tặng & chi phí theo tháng']].map(([k,l])=>`<span class="chip ${(state.bdTab||'')===k?'on':''}" onclick="state.bdTab='${k}';loadPage()">${l}</span>`).join('')}</div>`}
 async function bdGifts(){
   const d=await api('/report/birthdays/month?ym='+(state.bdYm||'')+'&sale='+encodeURIComponent(state.sale));const m=$('#main');const T=d.totals;window._bd=d;
-  const mm=d.ym.slice(5)+'/'+d.ym.slice(0,4);const only=!!state.bdOnly;
+  const mm=d.ym.slice(5)+'/'+d.ym.slice(0,4);state.bdOnlyBy=state.bdOnlyBy||{};
+  // sang tháng (không còn là tháng chọn trước) thì mặc định chỉ hiện khách đã được chọn tặng quà
+  const only=state.bdOnlyBy[d.ym]??(!d.planning&&T.gifts>0);state.bdOnly=only;
   m.innerHTML=topbar('Sinh nhật khách hàng',{dates:false,exportKey:'birthday_gifts',extra:`<input class="f" id="fQ" placeholder="Tìm tên / mã / SĐT"><select class="f" id="fYm">${d.months.map(x=>`<option value="${x}" ${x===d.ym?'selected':''}>Tháng ${x.slice(5)}/${x.slice(0,4)}</option>`).join('')}</select><label class="row small" style="gap:6px;cursor:pointer"><input type="checkbox" id="fOnly" ${only?'checked':''}> Chỉ khách được tặng quà</label>`})+bdTabs()+
-  `<div class="grid g4"><div class="card tile"><h3>Sinh nhật tháng ${mm}</h3><div class="v">${fmt(T.customers)}</div><div class="d">khách có ngày sinh trong tháng</div></div>
+  `<div class="card" style="margin-bottom:14px;background:var(--surface-2)">${d.planning?`<b>Đang chọn trước cho tháng ${mm}.</b> Tick “Tặng quà” ở những khách được tặng, nhập dự trù kinh phí. Sang tháng ${mm}, trang này chỉ hiện những khách đã chọn để nhập quà, tổng chi, hoá đơn, ảnh.`:(T.gifts?`Tháng ${mm}: đang hiện ${only?'<b>các khách đã chọn tặng quà</b>':'tất cả khách sinh nhật'}. Bấm “Sửa” để nhập quà, tổng chi, VAT, ảnh, hoá đơn.`:`Tháng ${mm} chưa chọn khách nào được tặng quà. Tick “Tặng quà” ở các khách được tặng.`)} <span class="muted small">Từ ngày ${d.plan_day} hằng tháng, trang tự mở danh sách sinh nhật tháng sau.</span>${T.gifts?` <button class="btn small" id="bdBulk" style="margin-left:8px">Đặt dự trù cho ${T.gifts} khách đã chọn</button>`:''}</div>
+  <div class="grid g4"><div class="card tile"><h3>Sinh nhật tháng ${mm}</h3><div class="v">${fmt(T.customers)}</div><div class="d">khách có ngày sinh trong tháng</div></div>
    <div class="card tile"><h3>Được tặng quà</h3><div class="v" style="color:var(--brand)">${fmt(T.gifts)}</div><div class="d">${T.gifts&&T.no_photo?T.no_photo+' khách chưa có ảnh':'đã tick tặng quà'}</div></div>
    <div class="card tile"><h3>Dự trù kinh phí</h3><div class="v">${fmtK(T.budget)}</div><div class="d">tổng dự trù của các khách được tặng</div></div>
    <div class="card tile"><h3>Tổng chi thực tế</h3><div class="v" style="color:${T.spent>T.budget&&T.budget?'var(--bad)':'inherit'}">${fmtK(T.spent)}</div><div class="d">${T.with_vat} khoản có VAT (${fmtK(T.spent_vat)})${T.no_invoice?' · '+T.no_invoice+' khoản chưa có hoá đơn':''}</div></div></div>
@@ -931,10 +937,13 @@ async function bdGifts(){
     const f=d.rows.filter(r=>(!state.bdOnly||r.gift)&&(!q||(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)||(r.contact_number||'').includes(q)));
     $('#tb').innerHTML=f.map(r=>`<tr><td><b>${r.birthday_ddmm}</b> <span class="small muted">${r.age} tuổi</span></td><td class="name"><a href="#" onclick="openCustomer(${r.id});return false"><b>${esc(r.name)}</b></a>${r.is_boss?' <span class="tag">Khách sếp</span>':''}</td><td>${esc(r.contact_number||'')}</td><td>${esc(r.sale)}</td><td class="r">${fmt(r.revenue_12m)}</td><td><input type="checkbox" ${r.gift?'checked':''} onchange="bdToggle(${r.id},this.checked)" title="Tặng quà cho khách này"></td><td class="name">${esc(r.gift_name)}</td><td class="r">${r.budget?fmt(r.budget):'<span class="muted">–</span>'}</td><td class="r">${r.spent?'<b>'+fmt(r.spent)+'</b>':'<span class="muted">–</span>'}</td><td>${r.vat?'<span class="tag info">Có VAT</span>':''}</td><td>${lk(r.photo,'Xem ảnh')}</td><td>${lk(r.invoice_link,'Hoá đơn')}</td><td class="name small">${esc(r.note)}</td><td><button class="btn small" onclick="bdForm(${r.id})">Sửa</button></td></tr>`).join('')||`<tr><td colspan="14" class="empty">${state.bdOnly?'Chưa tick khách nào được tặng quà trong tháng này':'Không có khách sinh nhật trong tháng này'}</td></tr>`};
   $('#fQ').oninput=draw;draw();sortable('#t',draw);
-  $('#fYm').onchange=e=>{state.bdYm=e.target.value;loadPage()};$('#fOnly').onchange=e=>{state.bdOnly=e.target.checked;draw()};
+  $('#fYm').onchange=e=>{state.bdYm=e.target.value;loadPage()};$('#fOnly').onchange=e=>{state.bdOnly=state.bdOnlyBy[d.ym]=e.target.checked;draw()};
+  const bk=$('#bdBulk');if(bk)bk.onclick=async()=>{const v=prompt('Dự trù kinh phí cho MỖI khách đã chọn (đ). Khách đã có dự trù riêng sẽ được giữ nguyên.','');if(v===null)return;const n=+String(v).replace(/[^\d]/g,'');if(!n){toast('Nhập số tiền');return}
+    bk.disabled=true;let k=0;for(const r of d.rows.filter(x=>x.gift&&!x.budget)){await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{budget:n})});k++}toast(k?`Đã đặt dự trù cho ${k} khách`:'Các khách đã chọn đều có dự trù rồi');bdRefresh()};
 }
 const bdBody=(r,o={})=>Object.assign({customer_id:r.id,year:+window._bd.ym.slice(0,4),gift:r.gift,gift_name:r.gift_name,budget:r.budget,spent:r.spent,vat:r.vat,photo:r.photo,invoice_link:r.invoice_link,note:r.note},o);
-async function bdToggle(id,on){const r=window._bd.rows.find(x=>x.id===id);if(!r)return;await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:on?1:0})});toast(on?'Đã đánh dấu tặng quà':'Đã bỏ tặng quà');loadPage()}
+async function bdRefresh(){const q=$('#fQ')?$('#fQ').value:'',w=document.querySelector('#main .tablewrap'),top=w?w.scrollTop:0,y=window.scrollY;await bdGifts();if(q){$('#fQ').value=q;$('#fQ').oninput()}const w2=document.querySelector('#main .tablewrap');if(w2)w2.scrollTop=top;window.scrollTo(0,y)}
+async function bdToggle(id,on){const r=window._bd.rows.find(x=>x.id===id);if(!r)return;await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:on?1:0})});toast(on?'Đã chọn tặng quà':'Đã bỏ tặng quà');state.bdOnlyBy[window._bd.ym]=state.bdOnly;bdRefresh()}
 function bdForm(id){const r=window._bd.rows.find(x=>x.id===id);if(!r)return;const mb=$('#modalBody');mb.style.width='min(640px,100%)';
   const f=(id,label,v,type='text',extra='')=>`<label class="lb">${label}<input class="f" id="${id}" type="${type}" value="${esc(v??'')}" ${extra}></label>`;
   mb.innerHTML=`<div class="row"><h2 style="margin:0;flex:1">Quà sinh nhật · ${esc(r.name)}</h2><button class="btn" onclick="closeModal()">✕ Đóng</button></div>
@@ -948,7 +957,7 @@ function bdForm(id){const r=window._bd.rows.find(x=>x.id===id);if(!r)return;cons
   ${r.updated_by?`<p class="small muted">Cập nhật lần cuối: ${esc(r.updated_by)} · ${dmy(r.updated)}</p>`:''}
   <div class="row"><button class="btn primary" id="bgSave">Lưu</button></div>`;
   $('#modal').classList.add('open');
-  $('#bgSave').onclick=async()=>{await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:$('#bgGift').checked?1:0,gift_name:$('#bgName').value,budget:+$('#bgBudget').value||0,spent:+$('#bgSpent').value||0,vat:$('#bgVat').checked?1:0,photo:$('#bgPhoto').value,invoice_link:$('#bgInv').value,note:$('#bgNote').value})});closeModal();toast('Đã lưu');loadPage()}}
+  $('#bgSave').onclick=async()=>{await api('/report/birthdays/gift',{method:'POST',body:bdBody(r,{gift:$('#bgGift').checked?1:0,gift_name:$('#bgName').value,budget:+$('#bgBudget').value||0,spent:+$('#bgSpent').value||0,vat:$('#bgVat').checked?1:0,photo:$('#bgPhoto').value,invoice_link:$('#bgInv').value,note:$('#bgNote').value})});closeModal();toast('Đã lưu');bdRefresh()}}
 
 async function debts(){
   const d=await api('/debts?sale='+encodeURIComponent(state.user.scope==='own'?'':state.sale)+(state.debtYm?'&ym='+state.debtYm:''));const m=$('#main');const B=d.buckets,M=d.month;window._debts=d.rows;window._debtYm=d.ym;
