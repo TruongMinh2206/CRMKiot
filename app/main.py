@@ -22,6 +22,8 @@ from . import extras, campaign, events, tools, work, rooms
 app.include_router(extras.router)
 app.include_router(campaign.router)
 app.include_router(events.router)
+from . import files  # noqa: E402
+app.include_router(files.router)
 app.include_router(tools.router)
 app.include_router(work.router)
 app.include_router(rooms.router)
@@ -350,10 +352,12 @@ async def r_birthday_gift(request: Request, user=Depends(current_user)):
             raise HTTPException(400, "Số tiền không hợp lệ")
 
     def link(k):
-        v = (b.get(k) or "").strip()
-        if v and not v.lower().startswith(("http://", "https://")):
-            raise HTTPException(400, "Ảnh và hoá đơn cần dán đường link (bắt đầu bằng https://)")
-        return v[:1000]
+        """Ảnh / hoá đơn: mỗi dòng một file đã tải lên CRM (/api/files/…) hoặc một đường link; tối đa 8."""
+        items = [x.strip() for x in str(b.get(k) or "").splitlines() if x.strip()][:8]
+        for v in items:
+            if not (re.fullmatch(r"/api/files/[A-Za-z0-9_.-]{20,50}", v) or v.lower().startswith(("http://", "https://"))):
+                raise HTTPException(400, "Ảnh / hoá đơn không hợp lệ")
+        return "\n".join(items)[:1500]
 
     vals = (1 if b.get("gift") else 0, (b.get("gift_name") or "").strip()[:200], money("budget"), money("spent"),
             1 if b.get("vat") else 0, link("photo"), link("invoice_link"), (b.get("note") or "").strip()[:1000],
