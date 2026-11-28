@@ -867,6 +867,7 @@ async function customers(){
 }
 
 async function products(){
+  if(state.prodTab==='excl')return exclusive();
   if(state.prodTab)return stockWatch();
   const rows=await api('/report/products?'+qs());const m=$('#main');
   const cnt={};rows.forEach(r=>cnt[r.speed]=(cnt[r.speed]||0)+1);
@@ -893,8 +894,39 @@ async function products(){
   chart('c2',{type:'bar',data:{labels:slow.map(r=>r.name),datasets:[{data:slow.map(r=>r.stock_value),backgroundColor:css('--s4'),borderRadius:4,borderSkipped:'bottom'}]},options:Object.assign(gridOpt(true,true),{plugins:{tooltip:{callbacks:{label:c=>' '+fmt(c.raw)+' đ · tồn '+fmt(slow[c.dataIndex].on_hand)}}}})});
 }
 
+// ----- Hàng độc quyền mới / cũ: tổng, theo tháng, theo team -> sale -----
+async function exclusive(){
+  const boss=state.exBoss||'all';const d=await api('/report/products/exclusive?'+qs({boss}));const m=$('#main');
+  const [N,O]=d.groups,T=d.total;const z=v=>v?fmt(v):'<span class="muted">–</span>';const pc=(a,b)=>b?Math.round(a/b*100)+'%':'–';
+  const cells=r=>`<td class="r">${z(r.new_qty)}</td><td class="r">${z(r.new_rev)}</td><td class="r">${z(r.old_qty)}</td><td class="r">${z(r.old_rev)}</td><td class="r"><b>${z(r.qty)}</b></td><td class="r"><b>${z(r.rev)}</b></td>`;
+  const head=`<th class="r">SL ĐQ mới</th><th class="r">Doanh thu ĐQ mới</th><th class="r">SL ĐQ cũ</th><th class="r">Doanh thu ĐQ cũ</th><th class="r">Tổng SL</th><th class="r">Tổng doanh thu</th>`;
+  const tile=(G,c)=>`<div class="card tile"><h3>${G.label}</h3><div class="v" style="color:${c}">${fmtK(G.rev)}</div><div class="d"><b>${fmt(G.qty)}</b> sản phẩm · ${G.products} mã · ${G.customers} khách mua${G.ret_qty?`<br>hàng trả: ${fmt(G.ret_qty)} sp · ${fmtK(G.ret_rev)}`:''}</div></div>`;
+  const ymL=y=>y.slice(5)+'/'+y.slice(0,4);
+  m.innerHTML=topbar('Hàng độc quyền mới / cũ',{exportKey:'exclusive',extra:`<select class="f" id="fBoss"><option value="all">Tất cả khách</option><option value="sale">Chỉ khách sale</option><option value="boss">Chỉ khách sếp</option></select>`})+prodTabs()+
+  `<div class="grid g4">${tile(N,'var(--good)')}${tile(O,'var(--s3)')}
+    <div class="card tile"><h3>Tổng hàng độc quyền</h3><div class="v">${fmtK(T.rev)}</div><div class="d"><b>${fmt(T.qty)}</b> sản phẩm · ĐQ mới chiếm ${pc(T.new_rev,T.rev)} doanh thu</div></div>
+    <div class="card tile"><h3>Kỳ xem</h3><div class="v" style="font-size:18px">${dmy(d.from)} – ${dmy(d.to)}</div><div class="d">hoá đơn hoàn thành trên KiotViet · chưa trừ hàng trả</div></div></div>
+  <div class="card" style="margin-top:14px"><h3>1. Tổng kết theo tháng</h3><div class="tablewrap"><table><thead><tr><th>Tháng</th>${head}</tr></thead><tbody>
+    ${d.months.map(r=>`<tr><td><b>${ymL(r.ym)}</b></td>${cells(r)}</tr>`).join('')||'<tr><td colspan="7" class="empty">Không có dữ liệu</td></tr>'}
+    ${d.months.length>1?`<tr style="background:var(--surface2,rgba(0,0,0,.04))"><td><b>TỔNG</b></td>${cells(T)}</tr>`:''}</tbody></table></div></div>
+   <div class="card" style="margin-top:14px"><h3>Theo thương hiệu</h3><div class="tablewrap"><table><thead><tr><th>Nhóm</th><th>Thương hiệu</th><th class="r">Số mã</th><th class="r">Số lượng</th><th class="r">Doanh thu</th><th class="r">Tỷ trọng</th></tr></thead><tbody>
+    ${d.brands.map(b=>`<tr><td><span class="tag ${b.group==='excl_new'?'good':'info'}">${b.group_label}</span></td><td><b>${esc(b.brand)}</b></td><td class="r">${b.products}</td><td class="r">${fmt(b.qty)}</td><td class="r">${fmt(b.rev)}</td><td class="r muted">${pc(b.rev,T.rev)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Không có dữ liệu</td></tr>'}</tbody></table></div></div>
+  <div class="card" style="margin-top:14px"><h3>2. Kết quả theo team → từng sale <span class="x">sale = sale phụ trách khách · bấm tên team để thu gọn</span></h3><div class="tablewrap"><table><thead><tr><th>Team / Sale</th>${head}<th class="r">Tỷ trọng</th><th class="r" title="Phần doanh thu đến từ khách sếp">Trong đó khách sếp</th></tr></thead><tbody id="exT"></tbody></table></div></div>
+  <div class="card" style="margin-top:14px"><h3>Theo từng mã hàng <span class="x">${d.products.length} mã có bán trong kỳ</span></h3><div class="tablewrap"><table id="t"><thead><tr><th>Mã</th><th>Tên hàng</th><th>Nhóm</th><th>Thương hiệu</th><th class="r">Số lượng</th><th class="r">Giá bán TB</th><th class="r">Doanh thu</th></tr></thead><tbody id="tb"></tbody></table></div>
+   <p class="small muted">Nhóm “độc quyền mới / cũ” lấy theo <b>nhãn hiệu của mã hàng trên KiotViet</b> (${d.marks.map(esc).join(', ')}) — đổi nhãn trên KiotViet là báo cáo tự đổi theo. Số lượng và doanh thu tính trên mọi hoá đơn hoàn thành trong kỳ, nên có thể cao hơn file kế toán nhập tay nếu file đó chưa nhập đủ đơn.</p></div>`;
+  bindTopbar('exclusive',()=>({kind:state.exBoss||'all'}));
+  $('#fBoss').value=boss;$('#fBoss').onchange=e=>{state.exBoss=e.target.value;loadPage()};
+  state.exFold=state.exFold||{};
+  const drawT=()=>{$('#exT').innerHTML=d.teams.map((t,i)=>`<tr style="background:var(--surface2,rgba(0,0,0,.04));cursor:pointer" onclick="state.exFold['${i}']=!state.exFold['${i}'];window._exDraw()"><td><b>${state.exFold[i]?'▸':'▾'} Team ${esc(t.team)}</b> <span class="muted small">(${t.sales.length} sale)</span></td>${cells(t)}<td class="r">${pc(t.rev,T.rev)}</td><td class="r muted">${z(t.boss_rev)}</td></tr>`+
+    (state.exFold[i]?'':t.sales.map(s=>`<tr><td style="padding-left:28px">${esc(s.sale)}</td>${cells(s)}<td class="r muted">${pc(s.rev,T.rev)}</td><td class="r muted">${z(s.boss_rev)}</td></tr>`).join(''))).join('')+
+    (d.teams.length?`<tr><td><b>TỔNG CỘNG</b></td>${cells(T)}<td class="r">100%</td><td class="r muted">${z(d.teams.reduce((a,t)=>a+t.boss_rev,0))}</td></tr>`:'<tr><td colspan="9" class="empty">Không có dữ liệu</td></tr>')};
+  window._exDraw=drawT;drawT();
+  const draw=()=>{$('#tb').innerHTML=d.products.map(p=>`<tr><td class="muted">${esc(p.code)}</td><td class="name">${esc(p.name)}</td><td><span class="tag ${p.group==='excl_new'?'good':'info'}">${p.group_label}</span></td><td>${esc(p.brand)}</td><td class="r"><b>${fmt(p.qty)}</b></td><td class="r">${fmt(p.price)}</td><td class="r">${fmt(p.rev)}</td></tr>`).join('')||'<tr><td colspan="7" class="empty">Không có dữ liệu</td></tr>'};
+  draw();sortable('#t',draw);
+}
+
 // ----- Hàng cận date / tồn lâu (lô - hạn sử dụng lấy từ KiotViet) -----
-function prodTabs(){return `<div class="subtabs">${[['','Bán nhanh / chậm'],['expiry','Cận date'],['stale','Tồn lâu']].map(([k,l])=>`<span class="chip ${(state.prodTab||'')===k?'on':''}" onclick="state.prodTab='${k}';loadPage()">${l}</span>`).join('')}</div>`}
+function prodTabs(){return `<div class="subtabs">${[['','Bán nhanh / chậm'],['excl','Hàng độc quyền'],['expiry','Cận date'],['stale','Tồn lâu']].map(([k,l])=>`<span class="chip ${(state.prodTab||'')===k?'on':''}" onclick="state.prodTab='${k}';loadPage()">${l}</span>`).join('')}</div>`}
 async function stockWatch(){
   const d=await api('/report/products/expiry');const m=$('#main');const B=d.bands;const tab=state.prodTab;
   const BT={expired:'bad',m3:'bad',m6:'warn',m12:'info',ok:'good',none:''};const z=v=>v?fmt(v):'<span class="muted">–</span>';
