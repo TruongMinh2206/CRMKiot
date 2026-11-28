@@ -569,6 +569,13 @@ def alerts(user=Depends(current_user)):
     today = date.today()
     out = []
 
+    if today.day >= reports.BIRTHDAY_PLAN_DAY and "birthdays" in (user.get("pages") or []):
+        b = reports.birthday_month(None, s)
+        if b["planning"] and b["totals"]["customers"] and not b["totals"]["gifts"]:
+            out.append({"key": "bdgift", "level": "warn", "n": b["totals"]["customers"], "href": "#birthdays",
+                        "title": f"Chọn khách tặng quà sinh nhật tháng {b['ym'][5:]}/{b['ym'][:4]}",
+                        "note": "khách có sinh nhật tháng sau · chưa tick khách nào được tặng quà"})
+
     d = reports.debt_aging(s)
     if d["overdue_customers"]:
         out.append({"key": "debt", "level": "bad", "n": d["overdue_customers"], "amount": d["overdue"], "href": "#debts",

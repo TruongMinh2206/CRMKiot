@@ -204,12 +204,17 @@ def sync_all(full=False):
                              0 if u.get("isActive") is False else 1))
 
         state["progress"] = "Khách hàng"
+        # KiotViet không phải lúc nào cũng đổi ngày sửa của khách khi công nợ thay đổi,
+        # nên mỗi ngày tải lại toàn bộ khách một lần để số nợ ở trang Công nợ đúng
+        day = datetime.now().strftime("%Y-%m-%d")
+        cust_from = last_from if db.get_meta("cust_full_day") == day else None
+        cust_items = []                         # tải xong rồi mới ghi, để không giữ khoá ghi của DB suốt lúc tải
+        for c in k.customers(cust_from):
+            cust_items.append(c)
+            if len(cust_items) % 500 == 0:
+                state["progress"] = f"Khách hàng: {len(cust_items)}"
         with db.cursor() as con:
-            # KiotViet không phải lúc nào cũng đổi ngày sửa của khách khi công nợ thay đổi,
-            # nên mỗi ngày tải lại toàn bộ khách một lần để số nợ ở trang Công nợ đúng
-            day = datetime.now().strftime("%Y-%m-%d")
-            cust_from = last_from if db.get_meta("cust_full_day") == day else None
-            for c in k.customers(cust_from):
+            for c in cust_items:
                 counts["customers"] += 1
                 con.execute("""INSERT INTO customers(id,code,name,gender,birth_date,contact_number,email,address,location_name,
                     ward_name,organization,comments,groups,branch_id,created_by,created_date,modified_date,debt,total_invoiced,
@@ -229,8 +234,6 @@ def sync_all(full=False):
                              _d(c.get("createdDate")), _d(c.get("modifiedDate")), _m(c.get("debt")), _m(c.get("totalInvoiced")),
                              _m(c.get("totalRevenue")), c.get("totalPoint"), c.get("rewardPoint"),
                              0 if c.get("isActive") is False else 1, None, json.dumps(c, ensure_ascii=False)))
-                if counts["customers"] % 500 == 0:
-                    state["progress"] = f"Khách hàng: {counts['customers']}"
 
         db.set_meta("cust_full_day", day)
 

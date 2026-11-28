@@ -365,6 +365,9 @@ def stock_watch():
             "as_of": db.get_meta("last_sync"), "has_batches": bool(db.one("SELECT 1 x FROM product_batches LIMIT 1"))}
 
 
+BIRTHDAY_PLAN_DAY = 20
+
+
 def birthday_month(ym=None, sale=None):
     """Khách có sinh nhật trong tháng (xem được cả tháng sắp tới), kèm theo dõi quà tặng và chi phí của năm đó."""
     today = date.today()
@@ -372,7 +375,9 @@ def birthday_month(ym=None, sale=None):
         y, m = (int(x) for x in (ym or "").split("-"))
         date(y, m, 1)
     except (ValueError, TypeError):
-        y, m = today.year, today.month
+        # từ ngày 20 trở đi mặc định mở tháng sau để chọn trước khách được tặng quà
+        nxt = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+        y, m = (nxt.year, nxt.month) if today.day >= BIRTHDAY_PLAN_DAY else (today.year, today.month)
     sf, sp = _sale_filter(sale)
     since = (today - timedelta(days=365)).isoformat()
     rows = db.rows(f"""SELECT c.id, c.code, c.name, c.contact_number, c.birth_date, {sale_expr()} AS sale,
@@ -401,7 +406,8 @@ def birthday_month(ym=None, sale=None):
     for i in range(-2, 13):                       # 2 tháng tới và 12 tháng trước
         mm, yy = (cur.month - 1 + (-i)) % 12 + 1, cur.year + (cur.month - 1 + (-i)) // 12
         months.append(f"{yy}-{mm:02d}")
-    return {"ym": f"{y}-{m:02d}", "months": months, "rows": rows,
+    return {"ym": f"{y}-{m:02d}", "months": months, "rows": rows, "plan_day": BIRTHDAY_PLAN_DAY,
+            "planning": f"{y}-{m:02d}" > today.strftime("%Y-%m"),      # đang chọn trước cho tháng chưa tới
             "totals": {"customers": len(rows), "gifts": len(gifts), "budget": sum(r["budget"] for r in gifts),
                        "spent": sum(r["spent"] for r in gifts), "spent_vat": sum(r["spent"] for r in gifts if r["vat"]),
                        "with_vat": sum(1 for r in gifts if r["vat"]), "no_invoice": sum(1 for r in gifts if r["spent"] and not r["invoice_link"]),
